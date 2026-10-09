@@ -332,7 +332,10 @@ what findings look like.
    for Linux and the asset's Python version, **wheels only**: nothing is installed and no package
    code runs. Packages published only as source need their build script run to reveal their own
    dependencies; that is allowed only for assets marked `trust_build_scripts` (this repository,
-   because of `dbt-core-experimental-parser`).
+   because of `dbt-core-experimental-parser`). One pip limitation remains: environment markers
+   such as `colorama; sys_platform == "win32"` are evaluated for the machine running the scan, so
+   a scan on Windows lists a few Windows-only packages (22 instead of 19 for one repository). The
+   scheduled scan runs on Linux.
 3. **[OSV.dev](https://osv.dev)** says which advisories affect each version. The same flaw often
    appears as a GitHub advisory, a PyPI advisory and a CVE; they are grouped under the CVE id, and
    OSV records are cached by their modification time.
