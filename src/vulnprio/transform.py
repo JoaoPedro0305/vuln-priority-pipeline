@@ -4,6 +4,7 @@
 tests fail stops everything built on top of it.
 """
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -25,6 +26,7 @@ def run_dbt(
     warehouse: Path | None = None,
     select: str | None = None,
     target_dir: Path | None = None,
+    dbt_vars: dict[str, str] | None = None,
 ) -> None:
     """Run a dbt command (build, run, test, docs generate...) on `warehouse`."""
     warehouse = Path(warehouse or config.WAREHOUSE_PATH).resolve()
@@ -34,6 +36,8 @@ def run_dbt(
     args = [*command.split(), "--project-dir", str(config.DBT_DIR), "--profiles-dir", str(config.DBT_DIR)]
     if select:
         args += ["--select", select]
+    if dbt_vars:
+        args += ["--vars", json.dumps(dbt_vars)]
     if target_dir:
         args += ["--target-path", str(target_dir), "--log-path", str(target_dir / "logs")]
 

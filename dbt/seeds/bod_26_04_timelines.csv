@@ -1,0 +1,17 @@
+in_kev,publicly_exposed,automatable,technical_impact,remediation
+no,no,no,partial,fix on system upgrade
+yes,no,no,partial,14 days
+no,yes,no,partial,60 days
+no,no,yes,partial,60 days
+no,no,no,total,fix on system upgrade
+yes,yes,no,partial,14 days
+yes,no,yes,partial,14 days
+no,yes,yes,partial,14 days
+yes,no,no,total,14 days
+no,yes,no,total,14 days
+no,no,yes,total,60 days
+yes,yes,yes,partial,3 days
+yes,yes,no,total,3 days & forensic investigation
+yes,no,yes,total,3 days & forensic investigation
+no,yes,yes,total,3 days
+yes,yes,yes,total,3 days & forensic investigation

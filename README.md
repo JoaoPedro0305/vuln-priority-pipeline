@@ -31,7 +31,7 @@ Built in stages, one pull request each:
 - [x] **1. Ingestion of KEV and EPSS** into a DuckDB raw layer, validated before every load
 - [x] **2. NVD ingestion**: full rebuild from the yearly feeds, daily increments from the API
 - [x] **3. dbt models**: staging, intermediate and a `cves` mart, with data tests, a unit test and a contract
-- [ ] 4. Priority score and CISA SSVC decisions
+- [x] **4. Priority ranking** from CISA's SSVC decision table and the BOD 26-04 remediation timelines
 - [ ] 5. EPSS history and the patching-strategy backtest
 - [ ] 6. Dependencies of real repositories, matched through OSV.dev
 - [ ] 7. Daily run and public dashboard on GitHub Pages
@@ -151,7 +151,7 @@ flowchart LR
   Its **contract** fails the build if a column disappears or changes type.
 - **Tests**: 45 data tests (keys unique and present, accepted values, scores within range, every
   KEV CVE reaching the mart, CVSS v3 severity matching its score), source freshness thresholds,
-  and a **unit test** of the CVSS choice on hand-made rows. A pytest run builds the whole project
+  and **unit tests** of the CVSS choice and of the priority rules on hand-made rows. A pytest run builds the whole project
   on a small warehouse, so CI checks the SQL on every pull request.
 
 ### What the data already shows
@@ -173,6 +173,57 @@ the 7.0 "high" line.
 That is why the score keeps a `cvss3_provider` column, and why severity alone is a shaky basis for
 prioritization.
 
+## Priority ranking
+
+`marts.cve_priorities` ranks every published CVE with CISA's own decision tables, copied as dbt
+seeds from the SSVC project of CERT/CC (pinned to a commit):
+
+| Table | Inputs | Output |
+|---|---|---|
+| SSVC, CISA Coordinator 2.0.3 | exploitation, automatable, technical impact, mission impact | track, track\*, attend, act |
+| BOD 26-04 timelines | in KEV, publicly exposed, automatable, technical impact | fix in 3 days (+ forensic check), 3, 14 or 60 days, or on upgrade |
+
+`priority_rank` sorts by timeline, then SSVC decision, then EPSS, then CVSS, and
+`priority_reason` says why in words:
+
+```text
+$ vulnprio top --limit 3
+   rank  cve             product                           fix within        ssvc    why
+      1  CVE-2024-3400   Palo Alto Networks PAN-OS         3 days+forensics  act     exploited in the wild (KEV, ransomware); automatable; total control; EPSS 99.9%; CVSS 10.0
+      2  CVE-2021-44228  Apache Log4j2                     3 days+forensics  act     exploited in the wild (KEV, ransomware); automatable; total control; EPSS 99.9%; CVSS 10.0
+      3  CVE-2019-11510  Ivanti Pulse Connect Secure       3 days+forensics  act     exploited in the wild (KEV, ransomware); automatable; total control; EPSS 99.9%; CVSS 10.0
+```
+
+**Where the inputs come from.** CISA assessed about half of all CVEs (197k). For the rest the
+inputs are derived, and the derivation was checked against CISA's answers on the 190k CVEs that
+have both:
+
+| Input | Derived from | Agrees with CISA |
+|---|---|---:|
+| Automatable | CVSS vector: network, low complexity, no privileges, no user interaction | 92% |
+| Technical impact | CVSS vector: high confidentiality and integrity impact ("total control") | 90% |
+| Exploitation | in KEV = active; NVD reference tagged "Exploit" = proof of concept | 88% |
+
+Exploitation takes the **strongest** evidence available: CISA's assessment can predate the CVE's
+addition to KEV. CVEs with no vector at all (3,357) default to "not automatable, partial impact"
+and say so in `automatable_source = 'unknown'`.
+
+**Organisation inputs.** Mission impact and internet exposure describe your systems, not the
+vulnerability, so they are dbt variables (defaults: medium, exposed):
+
+```bash
+vulnprio transform --mission-impact high --publicly-exposed no
+```
+
+**What it shows.** At medium mission impact, SSVC says *act* or *attend* almost only for
+vulnerabilities already exploited (1,600 of 1,605 are in KEV): it waits for evidence. The other
+~384,000 CVEs are *track* or *track\**, and within those the order comes from EPSS. Whether that
+order is any good is the question of the next stage.
+
+> **Caution for the backtest.** This ranking uses today's KEV, which is also what "exploited" will
+> mean in the backtest. Evaluating it on the past requires the KEV and EPSS of each past date,
+> not today's, or the result is circular.
+
 ## Run it
 
 Requires Python 3.11+.
@@ -188,6 +239,7 @@ vulnprio ingest nvd --years 2024 # only some yearly feeds
 vulnprio ingest nvd --since 2026-10-01
 vulnprio transform               # dbt build: models + tests
 vulnprio transform --select marts
+vulnprio top --vendor apache --since 2025-01-01
 vulnprio status
 ```
 
@@ -201,7 +253,7 @@ Data goes to `data/` (ignored by git); `VULNPRIO_DATA_DIR` and `VULNPRIO_WAREHOU
 
 ## Quality and security of the repository itself
 
-- `ci`: ruff (lint, including bandit security rules), 71 tests on Python 3.11 to 3.13 (one of them builds the dbt project), and
+- `ci`: ruff (lint, including bandit security rules), 75 tests on Python 3.11 to 3.13 (several build the dbt project), and
   `pip-audit` failing the build on any known vulnerability in the pinned dependencies.
 - `codeql`: static analysis of the Python code and of the workflow files.
 - `live sources`: weekly run against the real CISA, FIRST and NVD endpoints, so a format change
