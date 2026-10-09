@@ -1,0 +1,92 @@
+version: 2
+
+models:
+  - name: stg_kev
+    description: CISA KEV catalog, trimmed, with the ransomware flag as a boolean.
+    columns:
+      - name: cve_id
+        data_tests: [unique, not_null]
+      - name: date_added
+        data_tests: [not_null]
+      - name: known_ransomware_use
+        description: True when CISA knows the vulnerability was used in ransomware campaigns.
+
+  - name: stg_epss
+    description: Every loaded EPSS day.
+    columns:
+      - name: epss
+        description: Probability of exploitation activity in the next 30 days.
+      - name: epss_percentile
+        data_tests:
+          - values_between:
+                arguments: {min_value: 0, max_value: 1}
+
+  - name: stg_nvd__cves
+    description: One row per NVD CVE with its scalar fields.
+    columns:
+      - name: cve_id
+        data_tests: [unique, not_null]
+      - name: is_rejected
+        description: Rejected CVE ids were withdrawn (duplicate, not a vulnerability...). Excluded from the marts.
+      - name: cve_tags
+        description: CNA tags such as "disputed" or "unsupported-when-assigned".
+
+  - name: stg_nvd__cvss
+    description: One row per CVSS score attached to a CVE (version x source).
+    columns:
+      - name: cvss_version
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["2.0", "3.0", "3.1", "4.0"]
+      - name: source_type
+        description: Primary = scored by NVD; Secondary = scored by the CNA or an ADP.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [Primary, Secondary]
+      - name: base_score
+        data_tests:
+          - not_null
+          - values_between:
+              arguments: {min_value: 0, max_value: 10}
+      - name: base_severity
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [NONE, LOW, MEDIUM, HIGH, CRITICAL]
+
+  - name: stg_nvd__ssvc
+    description: SSVC decision points assessed for a CVE, mostly by CISA (Vulnrichment).
+    columns:
+      - name: exploitation
+        description: none (no evidence), poc (public proof of concept) or active (exploited in the wild).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [none, poc, active]
+      - name: automatable
+        description: Whether an attacker can automate the exploitation across many targets.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["yes", "no"]
+      - name: technical_impact
+        description: partial or total control over the affected component.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [partial, total]
+
+  - name: stg_nvd__weaknesses
+    description: One row per (CVE, source, CWE id).
+    columns:
+      - name: cwe_id
+        data_tests: [not_null]
+
+  - name: stg_nvd__references
+    description: One row per reference URL of a CVE, with NVD's tags.
+    columns:
+      - name: url
+        data_tests: [not_null]

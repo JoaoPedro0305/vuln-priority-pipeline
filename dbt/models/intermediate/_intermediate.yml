@@ -1,0 +1,78 @@
+version: 2
+
+models:
+  - name: int_cve_cvss
+    description: >
+      One CVSS score per CVE and family (v3, v4, v2), preferring NVD, then the CNA, then any
+      other source; and a headline score (v3, else v4, else v2).
+    columns:
+      - name: cve_id
+        data_tests: [unique, not_null]
+      - name: cvss3_provider
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [nvd, cna, other]
+      - name: cvss_family
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["3", "4", "2"]
+
+  - name: int_cve_ssvc
+    columns:
+      - name: cve_id
+        data_tests: [unique, not_null]
+
+  - name: int_cve_references
+    columns:
+      - name: cve_id
+        data_tests: [unique, not_null]
+
+  - name: int_cve_weaknesses
+    columns:
+      - name: cve_id
+        data_tests: [unique, not_null]
+
+  - name: int_cve_products
+    columns:
+      - name: cve_id
+        data_tests: [unique, not_null]
+
+  - name: int_epss_latest
+    columns:
+      - name: cve_id
+        data_tests: [unique, not_null]
+
+unit_tests:
+  - name: cvss_prefers_nvd_then_cna_then_newer_version
+    description: The choice rules of int_cve_cvss, on hand-made rows.
+    model: int_cve_cvss
+    given:
+      - input: ref('stg_nvd__cves')
+        rows:
+          - {cve_id: CVE-1, source_identifier: cna@vendor}
+          - {cve_id: CVE-2, source_identifier: cna@vendor}
+          - {cve_id: CVE-3, source_identifier: cna@vendor}
+          - {cve_id: CVE-4, source_identifier: cna@vendor}
+      - input: ref('stg_nvd__cvss')
+        rows:
+          # CVE-1: NVD wins over the CNA, even with a lower score; they disagree.
+          - {cve_id: CVE-1, cvss_version: "3.1", source: nvd@nist.gov, source_type: Primary, base_score: 7.5, base_severity: HIGH}
+          - {cve_id: CVE-1, cvss_version: "3.1", source: cna@vendor, source_type: Secondary, base_score: 9.8, base_severity: CRITICAL}
+          # CVE-2: no NVD score; the CNA wins over another source (an ADP).
+          - {cve_id: CVE-2, cvss_version: "3.1", source: adp@cisa, source_type: Secondary, base_score: 9.0, base_severity: CRITICAL}
+          - {cve_id: CVE-2, cvss_version: "3.1", source: cna@vendor, source_type: Secondary, base_score: 5.3, base_severity: MEDIUM}
+          # CVE-3: same source, 3.1 wins over 3.0; v2 is kept separately.
+          - {cve_id: CVE-3, cvss_version: "3.0", source: nvd@nist.gov, source_type: Primary, base_score: 8.8, base_severity: HIGH}
+          - {cve_id: CVE-3, cvss_version: "3.1", source: nvd@nist.gov, source_type: Primary, base_score: 8.1, base_severity: HIGH}
+          - {cve_id: CVE-3, cvss_version: "2.0", source: nvd@nist.gov, source_type: Primary, base_score: 6.8, base_severity: MEDIUM}
+          # CVE-4: only v4 and v2: the headline score is v4.
+          - {cve_id: CVE-4, cvss_version: "4.0", source: cna@vendor, source_type: Secondary, base_score: 6.9, base_severity: MEDIUM}
+          - {cve_id: CVE-4, cvss_version: "2.0", source: nvd@nist.gov, source_type: Primary, base_score: 4.3, base_severity: MEDIUM}
+    expect:
+      rows:
+        - {cve_id: CVE-1, cvss3_score: 7.5, cvss3_provider: nvd, cvss3_sources_disagree: true, cvss_score: 7.5, cvss_family: "3"}
+        - {cve_id: CVE-2, cvss3_score: 5.3, cvss3_provider: cna, cvss3_sources_disagree: null, cvss_score: 5.3, cvss_family: "3"}
+        - {cve_id: CVE-3, cvss3_score: 8.1, cvss3_provider: nvd, cvss3_sources_disagree: null, cvss_score: 8.1, cvss_family: "3"}
+        - {cve_id: CVE-4, cvss3_score: null, cvss3_provider: null, cvss3_sources_disagree: null, cvss_score: 6.9, cvss_family: "4"}

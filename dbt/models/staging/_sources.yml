@@ -1,0 +1,51 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Tables loaded by `vulnprio ingest`, as published by each source (only typed).
+    schema: raw
+    config:
+      loaded_at_field: loaded_at
+      # A daily pipeline: data older than this means ingestion stopped running.
+      freshness:
+        warn_after: {count: 2, period: day}
+        error_after: {count: 7, period: day}
+    tables:
+      - name: kev
+        description: CISA Known Exploited Vulnerabilities catalog, replaced in full on each load.
+        columns:
+          - name: cve_id
+            data_tests: [unique, not_null]
+          - name: known_ransomware_use
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values: ["Known", "Unknown"]
+
+      - name: epss
+        description: EPSS scores, one row per CVE per scored day.
+        columns:
+          - name: cve_id
+            data_tests: [not_null]
+          - name: epss
+            data_tests:
+              - values_between:
+                  arguments: {min_value: 0, max_value: 1}
+
+      - name: nvd
+        description: NVD CVE records, one row per CVE (latest version), nested fields as JSON.
+        columns:
+          - name: cve_id
+            data_tests: [unique, not_null]
+          - name: vuln_status
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values:
+                      - Received
+                      - Awaiting Analysis
+                      - Undergoing Analysis
+                      - Analyzed
+                      - Modified
+                      - Deferred
+                      - Rejected

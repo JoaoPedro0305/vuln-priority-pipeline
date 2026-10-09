@@ -1,0 +1,29 @@
+name: vulnprio
+version: "0.1.0"
+config-version: 2
+profile: vulnprio
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+target-path: target
+clean-targets: [target, logs]
+
+# Three layers, one schema each:
+#   staging       one view per source table: renamed, typed, trimmed, nested JSON unpacked
+#   intermediate  per-CVE building blocks (chosen CVSS score, latest EPSS, ...)
+#   marts         the tables that the scoring, the backtest and the dashboard read
+models:
+  vulnprio:
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: table
+    marts:
+      +schema: marts
+      +materialized: table
+
+flags:
+  send_anonymous_usage_stats: false
