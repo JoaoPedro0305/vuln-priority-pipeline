@@ -1,4 +1,4 @@
-"""Command line: `vulnprio ingest`, `transform`, `top` and `status`."""
+"""Command line: `vulnprio ingest`, `transform`, `top`, `report` and `status`."""
 
 import argparse
 import logging
@@ -8,8 +8,9 @@ from pathlib import Path
 import duckdb
 import requests
 
+from vulnprio import report
 from vulnprio.download import DownloadError, make_session
-from vulnprio.ingest import ingest_epss, ingest_kev, ingest_nvd
+from vulnprio.ingest import ingest_epss, ingest_epss_history, ingest_kev, ingest_nvd
 from vulnprio.sources.epss import EpssError
 from vulnprio.sources.kev import KevError
 from vulnprio.sources.nvd import NvdError
@@ -31,7 +32,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     ingest = commands.add_parser("ingest", help="download sources and load them into the raw layer")
     ingest.add_argument("source", choices=[*SOURCES, "all"])
-    ingest.add_argument("--date", type=date.fromisoformat, help="EPSS day to load, YYYY-MM-DD (default: latest)")
+    epss_day = ingest.add_mutually_exclusive_group()
+    epss_day.add_argument("--date", type=date.fromisoformat, help="EPSS day to load, YYYY-MM-DD (default: latest)")
+    epss_day.add_argument(
+        "--monthly-since",
+        type=date.fromisoformat,
+        metavar="YYYY-MM-DD",
+        help="EPSS: also load the first day of every month since then (history for the backtest)",
+    )
     nvd_mode = ingest.add_mutually_exclusive_group()
     nvd_mode.add_argument("--full", action="store_true", help="NVD: rebuild from the yearly feeds")
     nvd_mode.add_argument("--years", type=int, nargs="+", metavar="YEAR", help="NVD: load only these yearly feeds")
@@ -56,6 +64,9 @@ def build_parser() -> argparse.ArgumentParser:
     top.add_argument("--product", help="only this product (substring, case-insensitive)")
     top.add_argument("--since", type=date.fromisoformat, help="only CVEs published since YYYY-MM-DD")
 
+    report_cmd = commands.add_parser("report", help="print the backtest results and draw its charts")
+    report_cmd.add_argument("--out", type=Path, default=Path("docs/img"), help="folder for the charts")
+
     commands.add_parser("status", help="show what is loaded")
     return parser
 
@@ -64,7 +75,11 @@ def run_ingest(con: duckdb.DuckDBPyConnection, args: argparse.Namespace) -> int:
     session = make_session()
     steps = {
         "kev": lambda: ingest_kev(con, session),
-        "epss": lambda: ingest_epss(con, session, args.date),
+        "epss": lambda: (
+            ingest_epss_history(con, session, args.monthly_since)
+            if args.monthly_since
+            else ingest_epss(con, session, args.date)
+        ),
         "nvd": lambda: ingest_nvd(con, session, full=args.full, years=args.years, since=args.since),
     }
     selected = SOURCES if args.source == "all" else [args.source]
@@ -107,6 +122,31 @@ def show_top(con: duckdb.DuckDBPyConnection, args: argparse.Namespace) -> int:
     return 0
 
 
+def show_report(con: duckdb.DuckDBPyConnection, out: Path) -> int:
+    try:
+        table = report.coverage_table(con)
+        periods = report.period_table(con)
+        reach = report.reach_summary(con)
+        charts = [
+            report.plot_coverage(con, out / "backtest_coverage.png"),
+            report.plot_by_year(con, out / "backtest_by_year.png"),
+        ]
+    except report.ReportError as err:
+        print(err)
+        return 1
+
+    print("Share of the CVEs exploited in the next 30 days that each strategy had ranked within the")
+    print("monthly budget (budget as a share of all open CVEs in brackets):\n")
+    print(table)
+    print("\nAt 1,000 CVEs a month, in each period:\n")
+    print(periods)
+    print("\nKEV additions in the backtest windows:")
+    for reason, count in reach:
+        print(f"  {count:>5}  {reason}")
+    print("\nCharts: " + ", ".join(str(c) for c in charts))
+    return 0
+
+
 def show_status(con: duckdb.DuckDBPyConnection) -> int:
     latest = con.execute("""
         SELECT source, version, row_count, strftime(loaded_at, '%Y-%m-%d %H:%M UTC')
@@ -144,12 +184,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "ingest":
-        if args.date and args.source in ("kev", "nvd"):
-            parser.error("--date only applies to EPSS")
+        if (args.date or args.monthly_since) and args.source in ("kev", "nvd"):
+            parser.error("--date and --monthly-since only apply to EPSS")
         if (args.full or args.years or args.since) and args.source in ("kev", "epss"):
             parser.error("--full, --years and --since only apply to NVD")
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # force: importing dbt already installs a handler, which would make this a no-op.
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", force=True)
     if args.command == "transform":
         # dbt opens the warehouse itself; no connection is held here meanwhile.
         dbt_vars = {"mission_impact": args.mission_impact, "publicly_exposed": args.publicly_exposed}
@@ -171,6 +212,8 @@ def main(argv: list[str] | None = None) -> int:
             return run_ingest(con, args)
         if args.command == "top":
             return show_top(con, args)
+        if args.command == "report":
+            return show_report(con, args.out)
         return show_status(con)
     finally:
         con.close()

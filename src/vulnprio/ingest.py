@@ -14,7 +14,7 @@ import duckdb
 import requests
 
 from vulnprio import config
-from vulnprio.download import download, make_session
+from vulnprio.download import DownloadError, NotPublishedError, download, make_session
 from vulnprio.sources import epss, kev, nvd
 from vulnprio.warehouse import utc_now
 
@@ -106,3 +106,51 @@ def ingest_nvd(
 
     nvd.sync_api(con, api_session, last - NVD_API_OVERLAP, now, landing_dir, api_key=config.nvd_api_key(), sleep=sleep)
     return "api"
+
+
+def month_starts(since: date, until: date) -> list[date]:
+    """First day of every month from `since`'s month to `until`, inclusive."""
+    day = date(since.year, since.month, 1)
+    days = []
+    while day <= until:
+        days.append(day)
+        day = date(day.year + day.month // 12, day.month % 12 + 1, 1)
+    return days
+
+
+def ingest_epss_history(
+    con: duckdb.DuckDBPyConnection,
+    session: requests.Session,
+    since: date,
+    until: date | None = None,
+    landing_dir: Path | None = None,
+    *,
+    tries_per_month: int = 3,
+) -> list[date]:
+    """Load one EPSS day per month (the 1st, or the next published day).
+
+    Months that already have a loaded day are skipped, so the backfill can be
+    stopped and resumed. Returns the days loaded in this run.
+    """
+    until = until or utc_now().date()
+    since = max(since, config.EPSS_FIRST_DAY)
+    loaded_months = {(d.year, d.month) for (d,) in con.execute("SELECT DISTINCT score_date FROM raw.epss").fetchall()}
+
+    loaded = []
+    for first in month_starts(since, until):
+        if (first.year, first.month) in loaded_months:
+            continue
+        for offset in range(tries_per_month):
+            day = first + timedelta(days=offset)
+            if day > until:
+                break
+            try:
+                loaded.append(ingest_epss(con, session, day, landing_dir))
+                break
+            except DownloadError as err:
+                if not isinstance(err, NotPublishedError):
+                    raise
+                log.warning("EPSS %s not published, trying the next day", day)
+        else:
+            log.warning("EPSS: no file in the first %d days of %s", tries_per_month, first.strftime("%Y-%m"))
+    return loaded
