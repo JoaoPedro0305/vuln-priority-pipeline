@@ -30,7 +30,7 @@ Built in stages, one pull request each:
 
 - [x] **1. Ingestion of KEV and EPSS** into a DuckDB raw layer, validated before every load
 - [x] **2. NVD ingestion**: full rebuild from the yearly feeds, daily increments from the API
-- [ ] 3. dbt models (staging, marts) with data tests
+- [x] **3. dbt models**: staging, intermediate and a `cves` mart, with data tests, a unit test and a contract
 - [ ] 4. Priority score and CISA SSVC decisions
 - [ ] 5. EPSS history and the patching-strategy backtest
 - [ ] 6. Dependencies of real repositories, matched through OSV.dev
@@ -99,6 +99,80 @@ flowchart TD
 - **Why not the "modified" feed?** NVD documents a feed with the last 8 days of changes, but it
   answered 404 throughout development (its `.meta` file exists). The API covers the same need.
 
+## Transformation (dbt)
+
+`vulnprio transform` runs `dbt build`: every model and its tests, in dependency order, so a model
+whose tests fail stops everything built on it. The full run takes about a minute.
+
+```mermaid
+flowchart LR
+    subgraph raw
+        R1[raw.kev]
+        R2[raw.epss]
+        R3[raw.nvd]
+    end
+    subgraph staging["staging (views)"]
+        S1[stg_kev]
+        S2[stg_epss]
+        S3[stg_nvd__cves]
+        S4[stg_nvd__cvss]
+        S5[stg_nvd__ssvc]
+        S6[stg_nvd__weaknesses]
+        S7[stg_nvd__references]
+    end
+    subgraph intermediate
+        I1[int_cve_cvss]
+        I2[int_cve_ssvc]
+        I3[int_cve_weaknesses]
+        I4[int_cve_products]
+        I5[int_cve_references]
+        I6[int_epss_latest]
+    end
+    R1 --> S1
+    R2 --> S2
+    R3 --> S3 & S4 & S5 & S6 & S7
+    S4 --> I1
+    S3 --> I1 & I4
+    S5 --> I2
+    S6 --> I3
+    S7 --> I5
+    S2 --> I6
+    S1 & I1 & I2 & I3 & I4 & I5 & I6 --> M[(marts.cves)]
+```
+
+- **staging** unpacks NVD's nested JSON into one row per entry (CVSS score, SSVC assessment,
+  weakness, reference) and trims and types everything else.
+- **intermediate** holds the decisions, one per model. The main one, `int_cve_cvss`, picks one
+  CVSS score per CVE: NVD first (an independent analyst), then the CNA that published the CVE,
+  then anyone else; newer version on ties; and v3 as the headline score, the version most CVEs
+  have and the one patching thresholds (7.0, 9.0) were defined on.
+- **marts.cves** has one row per published CVE (385,178; 18,458 rejected ids left out): severity,
+  CWE, products, KEV status, exploit references, CISA's SSVC assessment and the latest EPSS score.
+  Its **contract** fails the build if a column disappears or changes type.
+- **Tests**: 45 data tests (keys unique and present, accepted values, scores within range, every
+  KEV CVE reaching the mart, CVSS v3 severity matching its score), source freshness thresholds,
+  and a **unit test** of the CVSS choice on hand-made rows. A pytest run builds the whole project
+  on a small warehouse, so CI checks the SQL on every pull request.
+
+### What the data already shows
+
+**Severity depends on who you ask.** Of 58,491 CVEs scored with CVSS 3.1 by both NVD and the CNA,
+75% got different scores, 58% differ by a full point or more, and 30% land on opposite sides of
+the 7.0 "high" line.
+
+**NVD now scores a minority of new CVEs.** Share of each year's CVEs whose v3 score comes from NVD:
+
+| Published | CVEs | Scored by NVD | Only by the CNA | Only by others (e.g. CISA) | No v3 score |
+|---|---:|---:|---:|---:|---:|
+| 2022 | 25,073 | 92% | 8% | 0% | 0% |
+| 2023 | 28,816 | 92% | 8% | 0% | 0% |
+| 2024 | 39,953 | 58% | 28% | 14% | 1% |
+| 2025 | 48,152 | 37% | 47% | 16% | 6% |
+| 2026 (to Oct.) | 76,299 | 20% | 64% | 16% | 10% |
+
+That is why the score keeps a `cvss3_provider` column, and why severity alone is a shaky basis for
+prioritization.
+
 ## Run it
 
 Requires Python 3.11+.
@@ -112,6 +186,8 @@ vulnprio ingest all              # KEV catalog, latest EPSS day, NVD (full first
 vulnprio ingest epss --date 2023-03-07
 vulnprio ingest nvd --years 2024 # only some yearly feeds
 vulnprio ingest nvd --since 2026-10-01
+vulnprio transform               # dbt build: models + tests
+vulnprio transform --select marts
 vulnprio status
 ```
 
@@ -125,7 +201,7 @@ Data goes to `data/` (ignored by git); `VULNPRIO_DATA_DIR` and `VULNPRIO_WAREHOU
 
 ## Quality and security of the repository itself
 
-- `ci`: ruff (lint, including bandit security rules), 68 tests on Python 3.11 to 3.13, and
+- `ci`: ruff (lint, including bandit security rules), 71 tests on Python 3.11 to 3.13 (one of them builds the dbt project), and
   `pip-audit` failing the build on any known vulnerability in the pinned dependencies.
 - `codeql`: static analysis of the Python code and of the workflow files.
 - `live sources`: weekly run against the real CISA, FIRST and NVD endpoints, so a format change
