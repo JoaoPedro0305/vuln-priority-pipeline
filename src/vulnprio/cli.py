@@ -8,9 +8,10 @@ from pathlib import Path
 import duckdb
 import requests
 
-from vulnprio import report
+from vulnprio import config, report
 from vulnprio.download import DownloadError, make_session
-from vulnprio.ingest import ingest_epss, ingest_epss_history, ingest_kev, ingest_nvd
+from vulnprio.ingest import ingest_deps, ingest_epss, ingest_epss_history, ingest_kev, ingest_nvd
+from vulnprio.sources.deps import DepsError
 from vulnprio.sources.epss import EpssError
 from vulnprio.sources.kev import KevError
 from vulnprio.sources.nvd import NvdError
@@ -19,10 +20,10 @@ from vulnprio.warehouse import connect
 
 log = logging.getLogger("vulnprio")
 
-SOURCES = ["kev", "epss", "nvd"]
+SOURCES = ["kev", "epss", "nvd", "deps"]
 
 # What a source can fail with. Anything else is a bug and should show a traceback.
-EXPECTED_ERRORS = (DownloadError, KevError, EpssError, NvdError, requests.RequestException, duckdb.Error)
+EXPECTED_ERRORS = (DownloadError, KevError, EpssError, NvdError, DepsError, requests.RequestException, duckdb.Error)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     nvd_mode.add_argument("--full", action="store_true", help="NVD: rebuild from the yearly feeds")
     nvd_mode.add_argument("--years", type=int, nargs="+", metavar="YEAR", help="NVD: load only these yearly feeds")
     nvd_mode.add_argument("--since", type=date.fromisoformat, help="NVD: load API changes since YYYY-MM-DD")
+    ingest.add_argument("--assets", type=Path, help="deps: the assets file (default: assets.toml)")
 
     transform = commands.add_parser("transform", help="build and test the dbt models (staging, marts)")
     transform.add_argument("--select", help="dbt selection, e.g. 'marts' or 'int_cve_cvss+'")
@@ -64,6 +66,10 @@ def build_parser() -> argparse.ArgumentParser:
     top.add_argument("--product", help="only this product (substring, case-insensitive)")
     top.add_argument("--since", type=date.fromisoformat, help="only CVEs published since YYYY-MM-DD")
 
+    findings = commands.add_parser("findings", help="vulnerable dependencies of the assets, and what to upgrade")
+    findings.add_argument("--asset", help="only this asset (substring, case-insensitive)")
+    findings.add_argument("--details", action="store_true", help="list every vulnerability, not only the upgrades")
+
     report_cmd = commands.add_parser("report", help="print the backtest results and draw its charts")
     report_cmd.add_argument("--out", type=Path, default=Path("docs/img"), help="folder for the charts")
 
@@ -81,8 +87,13 @@ def run_ingest(con: duckdb.DuckDBPyConnection, args: argparse.Namespace) -> int:
             else ingest_epss(con, session, args.date)
         ),
         "nvd": lambda: ingest_nvd(con, session, full=args.full, years=args.years, since=args.since),
+        "deps": lambda: ingest_deps(con, session, args.assets),
     }
     selected = SOURCES if args.source == "all" else [args.source]
+    assets_file = args.assets or config.ASSETS_PATH
+    if args.source == "all" and not assets_file.exists():
+        log.info("no %s: dependency scan skipped", assets_file)
+        selected = [s for s in selected if s != "deps"]
 
     failures = 0
     for name in selected:
@@ -119,6 +130,66 @@ def show_top(con: duckdb.DuckDBPyConnection, args: argparse.Namespace) -> int:
         print(f"{rank:>7}  {cve_id:<16}{product[:32]:<34}{fix:<18}{decision:<8}{reason}")
     if not rows:
         print("(no CVE matches)")
+    return 0
+
+
+def _deadline(days: int | None) -> str:
+    return f"{days} days" if days else "next upgrade"
+
+
+def show_findings(con: duckdb.DuckDBPyConnection, asset_filter: str | None, details: bool) -> int:
+    where = "WHERE ($1 IS NULL OR asset ILIKE '%' || $1 || '%')"
+    try:
+        assets = con.execute(
+            f"""
+            SELECT asset, packages, vulnerable_packages, findings, without_fix, shortest_deadline_days,
+                   publicly_exposed, mission_impact
+            FROM assets.asset_summary {where}
+            ORDER BY findings DESC, asset
+            """,  # noqa: S608
+            [asset_filter],
+        ).fetchall()
+        upgrades = con.execute(
+            f"""
+            SELECT asset, package, version, upgrade_to, is_direct, vulnerabilities, without_fix,
+                   ssvc_decision, deadline_days, most_urgent
+            FROM assets.asset_upgrades {where}
+            ORDER BY priority_rank
+            """,  # noqa: S608
+            [asset_filter],
+        ).fetchall()
+    except duckdb.CatalogException:
+        print("No dependency scan yet. Run: vulnprio ingest deps, then vulnprio transform")
+        return 1
+
+    print(f"{'asset':<34}{'exposed':<9}{'impact':<8}{'packages':>9}{'vulnerable':>11}{'flaws':>7}  fix within")
+    for asset, packages, vulnerable, flaws, _, deadline, exposed, impact in assets:
+        fix = _deadline(deadline) if flaws else "-"
+        print(f"{asset[:33]:<34}{exposed:<9}{impact:<8}{packages:>9}{vulnerable:>11}{flaws:>7}  {fix}")
+
+    if upgrades:
+        print("\nUpgrades, most urgent first:")
+        for asset, package, version, target, direct, count, unfixed, decision, deadline, urgent in upgrades:
+            how = "" if direct else " (comes with another package)"
+            target = target or "no fixed version"
+            note = f", {unfixed} without a fix" if unfixed else ""
+            print(f"  {asset}: {package} {version} -> {target}{how}")
+            print(
+                f"      fixes {count} vulnerabilities{note}; {decision}, within {_deadline(deadline)}; worst: {urgent}"
+            )
+
+    if details:
+        rows = con.execute(
+            f"""
+            SELECT priority_rank, asset, package, version, vuln_id, ssvc_decision, priority_reason
+            FROM assets.asset_findings {where}
+            ORDER BY priority_rank
+            """,  # noqa: S608
+            [asset_filter],
+        ).fetchall()
+        print("\nEvery vulnerability:")
+        for rank, asset, package, version, vuln_id, decision, reason in rows:
+            print(f"  {rank:>4}  {asset}: {package} {version}  {vuln_id:<20}{decision:<8}{reason}")
     return 0
 
 
@@ -184,10 +255,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "ingest":
-        if (args.date or args.monthly_since) and args.source in ("kev", "nvd"):
+        if (args.date or args.monthly_since) and args.source in ("kev", "nvd", "deps"):
             parser.error("--date and --monthly-since only apply to EPSS")
-        if (args.full or args.years or args.since) and args.source in ("kev", "epss"):
+        if (args.full or args.years or args.since) and args.source in ("kev", "epss", "deps"):
             parser.error("--full, --years and --since only apply to NVD")
+        if args.assets and args.source not in ("deps", "all"):
+            parser.error("--assets only applies to deps")
 
     # force: importing dbt already installs a handler, which would make this a no-op.
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", force=True)
@@ -214,6 +287,8 @@ def main(argv: list[str] | None = None) -> int:
             return show_top(con, args)
         if args.command == "report":
             return show_report(con, args.out)
+        if args.command == "findings":
+            return show_findings(con, args.asset, args.details)
         return show_status(con)
     finally:
         con.close()
