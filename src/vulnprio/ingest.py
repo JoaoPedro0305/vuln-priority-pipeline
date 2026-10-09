@@ -4,16 +4,28 @@ Each source is independent: one failing does not stop the others, and a
 failed load leaves the warehouse exactly as it was before.
 """
 
-from datetime import date
+import logging
+import time
+from collections.abc import Callable
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import duckdb
 import requests
 
 from vulnprio import config
-from vulnprio.download import download
-from vulnprio.sources import epss, kev
+from vulnprio.download import download, make_session
+from vulnprio.sources import epss, kev, nvd
 from vulnprio.warehouse import utc_now
+
+log = logging.getLogger(__name__)
+
+# Past this gap since the last NVD sync, re-reading the yearly feeds (~225 MB,
+# no rate limit) is quicker than paging through months of API changes.
+NVD_FULL_REBUILD_AFTER = timedelta(days=90)
+# Each incremental run re-asks for the last day already covered, in case NVD
+# records a change with a slightly earlier timestamp. Merging it again is harmless.
+NVD_API_OVERLAP = timedelta(days=1)
 
 
 def ingest_kev(
@@ -48,3 +60,49 @@ def ingest_epss(
         not_found=(403, 404),  # the bucket answers 403 for days not published
     )
     return epss.load(con, downloaded, utc_now(), expected_date=day)
+
+
+def ingest_nvd(
+    con: duckdb.DuckDBPyConnection,
+    session: requests.Session,
+    *,
+    full: bool = False,
+    years: list[int] | None = None,
+    since: date | None = None,
+    landing_dir: Path | None = None,
+    now: datetime | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> str:
+    """Bring raw.nvd up to date and return the mode used.
+
+    - "feeds": first run, `full`, or the last sync is older than 90 days.
+    - "api": everything modified since the last sync (minus a day of overlap).
+    - "years": only the given yearly feeds; does not count as a complete sync.
+    - "since": API changes since a given day, on request.
+    """
+    landing_dir = landing_dir or config.LANDING_DIR
+    now = now or utc_now()
+    all_years = list(range(config.NVD_FIRST_FEED_YEAR, now.year + 1))
+
+    if years:
+        unknown = sorted(set(years) - set(all_years))
+        if unknown:
+            raise nvd.NvdError(f"no NVD feed for {unknown}; feeds go from {all_years[0]} to {all_years[-1]}")
+        nvd.sync_feeds(con, session, sorted(set(years)), landing_dir, record_sync=False)
+        return "years"
+
+    api_session = make_session(extra_retry_statuses=(403,))  # NVD answers 403 when rate limiting
+    if since:
+        start = datetime(since.year, since.month, since.day)
+        nvd.sync_api(con, api_session, start, now, landing_dir, api_key=config.nvd_api_key(), sleep=sleep)
+        return "since"
+
+    last = nvd.watermark(con)
+    if full or last is None or now - last > NVD_FULL_REBUILD_AFTER:
+        reason = "requested" if full else "first sync" if last is None else f"last sync was {last:%Y-%m-%d}"
+        log.info("NVD: full rebuild from the yearly feeds (%s)", reason)
+        nvd.sync_feeds(con, session, all_years, landing_dir, record_sync=True)
+        return "feeds"
+
+    nvd.sync_api(con, api_session, last - NVD_API_OVERLAP, now, landing_dir, api_key=config.nvd_api_key(), sleep=sleep)
+    return "api"

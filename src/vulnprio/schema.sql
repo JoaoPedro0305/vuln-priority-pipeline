@@ -33,10 +33,38 @@ CREATE TABLE IF NOT EXISTS raw.epss (
     loaded_at     TIMESTAMP NOT NULL
 );
 
+-- NVD: one row per CVE, always its most recent version. Nested fields
+-- (metrics, weaknesses, references) stay as published JSON; dbt picks the
+-- CVSS score from them. The configurations tree (affected products, the
+-- largest field) is reduced to its distinct vulnerable CPE strings.
+CREATE TABLE IF NOT EXISTS raw.nvd (
+    cve_id            VARCHAR   NOT NULL,
+    source_identifier VARCHAR,
+    published         TIMESTAMP NOT NULL,
+    last_modified     TIMESTAMP NOT NULL,
+    vuln_status       VARCHAR   NOT NULL,  -- Analyzed, Modified, Deferred, Rejected...
+    cve_tags          JSON,
+    description_en    VARCHAR,
+    metrics           JSON,                -- CVSS v2 / v3.0 / v3.1 / v4.0, from NVD and the CNA
+    weaknesses        JSON,                -- CWE ids
+    refs              JSON,                -- reference URLs with tags such as "Exploit" or "Patch"
+    cpes              VARCHAR[],
+    loaded_at         TIMESTAMP NOT NULL
+);
+
+-- Each complete NVD sync and the modification time it covers up to. The next
+-- incremental run asks the API for everything modified since then.
+CREATE TABLE IF NOT EXISTS raw.nvd_sync (
+    mode          VARCHAR   NOT NULL,  -- 'feeds' (full rebuild) or 'api' (incremental)
+    covered_until TIMESTAMP NOT NULL,
+    cve_count     BIGINT    NOT NULL,  -- CVEs received in this sync
+    finished_at   TIMESTAMP NOT NULL
+);
+
 -- One row per load: what came in, from where, and the file's fingerprint.
 CREATE TABLE IF NOT EXISTS raw.load_log (
     source    VARCHAR   NOT NULL,
-    version   VARCHAR   NOT NULL,  -- KEV catalog version or EPSS score date
+    version   VARCHAR   NOT NULL,  -- KEV catalog version, EPSS score date, NVD feed year or API window
     row_count BIGINT    NOT NULL,
     url       VARCHAR   NOT NULL,
     sha256    VARCHAR   NOT NULL,
