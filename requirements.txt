@@ -1,0 +1,4 @@
+# Exact versions so every environment is the same.
+# Dependabot opens a pull request when a new version is out.
+duckdb==1.5.6
+requests==2.34.2

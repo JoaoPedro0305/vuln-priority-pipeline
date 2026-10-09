@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vulnprio"
+version = "0.1.0"
+description = "Ranks CVEs by real-world exploitation risk (NVD + CISA KEV + EPSS)."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+# Loose lower bounds here; the exact versions every environment uses are
+# pinned in requirements.txt (and updated by Dependabot).
+dependencies = [
+    "duckdb>=1.5",
+    "requests>=2.32",
+]
+
+[project.scripts]
+vulnprio = "vulnprio.cli:main"
+
+[tool.setuptools.package-data]
+vulnprio = ["*.sql"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, bugbear, pyupgrade, simplify, bandit (security), isort
+select = ["E", "F", "W", "B", "UP", "SIM", "S", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# assert is how pytest checks results; SQL strings in tests are fixed text.
+"tests/**" = ["S101", "S608"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
