@@ -1,4 +1,4 @@
-"""Command line: `vulnprio ingest kev|epss|nvd|all`, `vulnprio transform` and `vulnprio status`."""
+"""Command line: `vulnprio ingest`, `transform`, `top` and `status`."""
 
 import argparse
 import logging
@@ -39,6 +39,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     transform = commands.add_parser("transform", help="build and test the dbt models (staging, marts)")
     transform.add_argument("--select", help="dbt selection, e.g. 'marts' or 'int_cve_cvss+'")
+    transform.add_argument(
+        "--mission-impact",
+        choices=["low", "medium", "high"],
+        help="SSVC mission & well-being impact of your systems (default: medium)",
+    )
+    transform.add_argument(
+        "--publicly-exposed",
+        choices=["yes", "no"],
+        help="BOD 26-04: are your systems reachable from the internet? (default: yes)",
+    )
+
+    top = commands.add_parser("top", help="list the CVEs to patch first")
+    top.add_argument("--limit", type=int, default=20)
+    top.add_argument("--vendor", help="only this vendor (substring, case-insensitive)")
+    top.add_argument("--product", help="only this product (substring, case-insensitive)")
+    top.add_argument("--since", type=date.fromisoformat, help="only CVEs published since YYYY-MM-DD")
 
     commands.add_parser("status", help="show what is loaded")
     return parser
@@ -61,6 +77,34 @@ def run_ingest(con: duckdb.DuckDBPyConnection, args: argparse.Namespace) -> int:
             log.error("%s load failed: %s", name.upper(), err)
             failures += 1
     return 1 if failures else 0
+
+
+def show_top(con: duckdb.DuckDBPyConnection, args: argparse.Namespace) -> int:
+    try:
+        rows = con.execute(
+            """
+            SELECT priority_rank, cve_id, coalesce(vendor || ' ' || product, '?'), remediation, ssvc_decision,
+                   priority_reason
+            FROM marts.cve_priorities
+            WHERE ($1 IS NULL OR vendor ILIKE '%' || $1 || '%')
+              AND ($2 IS NULL OR product ILIKE '%' || $2 || '%')
+              AND ($3 IS NULL OR published >= $3)
+            ORDER BY priority_rank
+            LIMIT $4
+            """,
+            [args.vendor, args.product, args.since, args.limit],
+        ).fetchall()
+    except duckdb.CatalogException:
+        print("No priorities yet. Run: vulnprio transform")
+        return 1
+
+    print(f"{'rank':>7}  {'cve':<16}{'product':<34}{'fix within':<18}{'ssvc':<8}why")
+    for rank, cve_id, product, remediation, decision, reason in rows:
+        fix = remediation.replace(" & forensic investigation", "+forensics")
+        print(f"{rank:>7}  {cve_id:<16}{product[:32]:<34}{fix:<18}{decision:<8}{reason}")
+    if not rows:
+        print("(no CVE matches)")
+    return 0
 
 
 def show_status(con: duckdb.DuckDBPyConnection) -> int:
@@ -108,8 +152,14 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if args.command == "transform":
         # dbt opens the warehouse itself; no connection is held here meanwhile.
+        dbt_vars = {"mission_impact": args.mission_impact, "publicly_exposed": args.publicly_exposed}
         try:
-            run_dbt("build", warehouse=args.warehouse, select=args.select)
+            run_dbt(
+                "build",
+                warehouse=args.warehouse,
+                select=args.select,
+                dbt_vars={k: v for k, v in dbt_vars.items() if v},
+            )
         except TransformError as err:
             log.error("%s", err)
             return 1
@@ -119,6 +169,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "ingest":
             return run_ingest(con, args)
+        if args.command == "top":
+            return show_top(con, args)
         return show_status(con)
     finally:
         con.close()

@@ -9,6 +9,7 @@ import responses
 
 from tests.conftest import LOADED_AT, as_downloaded, epss_file, kev_entry, kev_feed, nvd_cve, nvd_feed
 from vulnprio import config
+from vulnprio.cli import main
 from vulnprio.download import make_session
 from vulnprio.sources import epss, kev, nvd
 from vulnprio.transform import TransformError, run_dbt
@@ -121,3 +122,56 @@ def test_failing_data_test_fails_the_transform(warehouse, tmp_path):
 def test_missing_warehouse_is_reported(tmp_path):
     with pytest.raises(TransformError, match="no warehouse"):
         run_dbt("build", warehouse=tmp_path / "missing.duckdb")
+
+
+def test_priorities_and_the_top_command(warehouse, tmp_path, capsys):
+    run_dbt("build", warehouse=warehouse, target_dir=tmp_path / "dbt")
+
+    con = connect(warehouse)
+    rows = con.execute("""
+        SELECT cve_id, priority_rank, exploitation, automatable, automatable_source, ssvc_decision, remediation
+        FROM marts.cve_priorities ORDER BY priority_rank
+    """).fetchall()
+    con.close()
+    assert rows == [
+        # In KEV, network/no-auth vector (AV:N/AC:L/PR:N/UI:N in the fixture), C:H/I:H.
+        ("CVE-2024-0001", 1, "active", "yes", "cvss3", "act", "3 days & forensic investigation"),
+        # CISA assessed it: active exploitation, automatable, total impact -> act; not in KEV -> 3 days.
+        ("CVE-2024-0003", 2, "active", "yes", "cisa", "act", "3 days"),
+    ]
+
+    assert main(["--warehouse", str(warehouse), "top", "--limit", "5"]) == 0
+    out = capsys.readouterr().out
+    assert "CVE-2024-0001" in out
+    assert "3 days+forensics" in out
+    assert "exploited in the wild (KEV)" in out
+
+    assert main(["--warehouse", str(warehouse), "top", "--vendor", "nobody"]) == 0
+    assert "(no CVE matches)" in capsys.readouterr().out
+
+
+def test_organisation_variables_change_the_decision(warehouse, tmp_path):
+    run_dbt(
+        "build",
+        warehouse=warehouse,
+        target_dir=tmp_path / "dbt",
+        dbt_vars={"mission_impact": "low", "publicly_exposed": "no"},
+    )
+    con = connect(warehouse)
+    decision = con.execute(
+        "SELECT ssvc_decision, remediation FROM marts.cve_priorities WHERE cve_id = 'CVE-2024-0003'"
+    ).fetchone()
+    con.close()
+    # active, automatable, total impact: "act" at medium mission impact, "attend" at low;
+    # not exposed to the internet and not in KEV: 60 days instead of 3.
+    assert decision == ("attend", "60 days")
+
+
+def test_invalid_organisation_variable_fails_the_build(warehouse, tmp_path):
+    with pytest.raises(TransformError):
+        run_dbt("build", warehouse=warehouse, target_dir=tmp_path / "dbt", dbt_vars={"mission_impact": "huge"})
+
+
+def test_top_before_transform_says_what_to_do(warehouse, capsys):
+    assert main(["--warehouse", str(warehouse), "top"]) == 1
+    assert "Run: vulnprio transform" in capsys.readouterr().out

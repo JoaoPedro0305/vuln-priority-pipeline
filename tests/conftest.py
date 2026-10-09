@@ -89,7 +89,12 @@ def nvd_cve(cve_id: str, last_modified: str = "2024-02-01T00:00:00.000", **overr
                 {
                     "source": "nvd@nist.gov",
                     "type": "Primary",
-                    "cvssData": {"version": "3.1", "baseScore": 9.8, "baseSeverity": "CRITICAL"},
+                    "cvssData": {
+                        "version": "3.1",
+                        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                        "baseScore": 9.8,
+                        "baseSeverity": "CRITICAL",
+                    },
                 }
             ]
         },
