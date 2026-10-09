@@ -25,6 +25,9 @@ models:
     marts:
       +schema: marts
       +materialized: table
+    backtest:
+      +schema: backtest
+      +materialized: table
 
 seeds:
   vulnprio:
@@ -38,6 +41,15 @@ vars:
   mission_impact: medium
   # BOD 26-04 "Publicly Exposed": reachable from the internet. "yes" assumes the worst.
   publicly_exposed: "yes"
+
+  # Backtest: one decision per month from this date; a CVE counts as caught when
+  # it was ranked within the budget and entered KEV within the window after.
+  backtest_start: "2022-01-01"
+  backtest_window_days: 30
+  backtest_budgets: [100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000]
+  # Results are also shown before and after this date, to check that the
+  # ranking holds in each period and not only on average.
+  backtest_split: "2025-01-01"
 
 flags:
   send_anonymous_usage_stats: false

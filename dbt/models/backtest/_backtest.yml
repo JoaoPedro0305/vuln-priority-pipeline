@@ -1,0 +1,111 @@
+version: 2
+
+models:
+  - name: bt_decision_dates
+    description: One decision date per month with a complete outcome window.
+    columns:
+      - name: decision_date
+        data_tests: [unique, not_null]
+
+  - name: bt_candidates
+    description: >
+      Every CVE that could have been patched on each decision date, with only the information
+      available on that date, and whether it entered KEV within the following window.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [decision_date, cve_id]
+    columns:
+      - name: epss
+        data_tests: [not_null]
+      - name: ssvc_decision
+        data_tests: [not_null]
+
+  - name: bt_ranks
+    description: Rank of each later-exploited CVE under each strategy, among that date's candidates.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [decision_date, cve_id, strategy]
+    columns:
+      - name: strategy
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [random, cvss, epss, timeline_first, track_star_first, priority]
+
+  - name: backtest_coverage
+    description: Coverage and efficiency of each strategy for each monthly patching budget.
+
+  - name: backtest_by_year
+    description: Coverage per year at a budget of 1,000 CVEs a month.
+
+  - name: backtest_by_period
+    description: >
+      Coverage per strategy and budget in two periods, split at var backtest_split
+      (before: CISA had published few SSVC assessments; after: many).
+    columns:
+      - name: period
+        data_tests: [not_null]
+
+  - name: backtest_reach
+    description: Each KEV addition in a backtest window, classified by whether a monthly cycle could rank it.
+    columns:
+      - name: reach
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [rankable, published after the decision date, not scored by EPSS that day, not in NVD or rejected]
+
+unit_tests:
+  - name: candidates_only_know_what_was_known_on_the_date
+    description: >
+      The point-in-time rules. Any of them broken would let the backtest see the future.
+    model: bt_candidates
+    overrides:
+      vars:
+        mission_impact: medium
+        publicly_exposed: "yes"
+    given:
+      - input: ref('bt_decision_dates')
+        rows:
+          - {decision_date: 2024-01-01, window_end: 2024-01-31}
+      - input: ref('stg_epss')
+        rows:
+          # The day's scores are used, not later ones.
+          - {score_date: 2024-01-01, cve_id: CVE-KNOWN, epss: 0.9}
+          - {score_date: 2024-01-01, cve_id: CVE-HIT, epss: 0.1}
+          - {score_date: 2024-02-01, cve_id: CVE-HIT, epss: 0.95}
+          - {score_date: 2024-01-01, cve_id: CVE-LATE, epss: 0.2}
+          - {score_date: 2024-01-01, cve_id: CVE-ASSESSED, epss: 0.3}
+          - {score_date: 2024-01-01, cve_id: CVE-FUTURE, epss: 0.4}
+      - input: ref('cves')
+        rows:
+          - {cve_id: CVE-KNOWN, published: 2023-06-01}
+          - {cve_id: CVE-HIT, published: 2023-06-01}
+          - {cve_id: CVE-LATE, published: 2023-06-01}
+          # CISA assessed it after the decision date: the assessment is ignored,
+          # the vector (network, no auth, C:H/I:H) is used instead.
+          - {cve_id: CVE-ASSESSED, published: 2023-06-01, ssvc_assessed_at: 2024-03-01, ssvc_exploitation: active,
+             ssvc_automatable: "no", ssvc_technical_impact: partial,
+             cvss3_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}
+          # Not yet published on the decision date.
+          - {cve_id: CVE-FUTURE, published: 2024-01-10}
+      - input: ref('stg_kev')
+        rows:
+          - {cve_id: CVE-KNOWN, date_added: 2023-12-15}  # already known: not a candidate
+          - {cve_id: CVE-HIT, date_added: 2024-01-20}  # added within the window: exploited
+          - {cve_id: CVE-LATE, date_added: 2024-02-15}  # added after the window: not counted
+      - input: ref('ssvc_cisa_coordinator')
+        rows:
+          - {exploitation: none, automatable: "no", technical_impact: partial, mission_impact: medium, decision: track}
+          - {exploitation: none, automatable: "yes", technical_impact: total, mission_impact: medium, decision: track}
+      - input: ref('bod_26_04_timelines')
+        rows:
+          - {in_kev: "no", publicly_exposed: "yes", automatable: "no", technical_impact: partial, remediation: 60 days}
+          - {in_kev: "no", publicly_exposed: "yes", automatable: "yes", technical_impact: total, remediation: 3 days}
+    expect:
+      rows:
+        - {cve_id: CVE-HIT, epss: 0.1, exploitation: none, automatable: "no", technical_impact: partial, exploited: true}
+        - {cve_id: CVE-LATE, epss: 0.2, exploitation: none, automatable: "no", technical_impact: partial, exploited: false}
+        - {cve_id: CVE-ASSESSED, epss: 0.3, exploitation: none, automatable: "yes", technical_impact: total, exploited: false}

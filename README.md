@@ -16,6 +16,11 @@ not how likely one is. This project asks a measurable question:
 > With a fixed patching budget, which prioritization rule catches the most vulnerabilities
 > that end up exploited in the wild?
 
+**Answer, from 57 monthly decisions (2022-2026)**: patching the 1,000 highest-CVSS CVEs a month
+would have caught **1.1%** of the CVEs exploited the following month, barely better than chance.
+EPSS alone catches **16.3%**, and this project's ranking (CISA's exploitation evidence, then EPSS)
+**21.9%**, in every year of the period. [Details below](#backtest-does-the-ranking-work).
+
 It combines three public sources:
 
 | Source | What it says | Role here |
@@ -32,7 +37,7 @@ Built in stages, one pull request each:
 - [x] **2. NVD ingestion**: full rebuild from the yearly feeds, daily increments from the API
 - [x] **3. dbt models**: staging, intermediate and a `cves` mart, with data tests, a unit test and a contract
 - [x] **4. Priority ranking** from CISA's SSVC decision table and the BOD 26-04 remediation timelines
-- [ ] 5. EPSS history and the patching-strategy backtest
+- [x] **5. Backtest** of patching strategies on 57 months of point-in-time EPSS and KEV
 - [ ] 6. Dependencies of real repositories, matched through OSV.dev
 - [ ] 7. Daily run and public dashboard on GitHub Pages
 - [ ] 8. Automatic issue when a dependency enters KEV
@@ -183,8 +188,9 @@ seeds from the SSVC project of CERT/CC (pinned to a commit):
 | SSVC, CISA Coordinator 2.0.3 | exploitation, automatable, technical impact, mission impact | track, track\*, attend, act |
 | BOD 26-04 timelines | in KEV, publicly exposed, automatable, technical impact | fix in 3 days (+ forensic check), 3, 14 or 60 days, or on upgrade |
 
-`priority_rank` sorts by timeline, then SSVC decision, then EPSS, then CVSS, and
-`priority_reason` says why in words:
+`priority_rank` puts known exploitation (KEV) first, then SSVC *act* and *attend*, then EPSS,
+then CVSS; the BOD 26-04 timeline is each CVE's deadline. That order is the one the
+[backtest](#backtest-does-the-ranking-work) supports. `priority_reason` says why in words:
 
 ```text
 $ vulnprio top --limit 3
@@ -217,12 +223,73 @@ vulnprio transform --mission-impact high --publicly-exposed no
 
 **What it shows.** At medium mission impact, SSVC says *act* or *attend* almost only for
 vulnerabilities already exploited (1,600 of 1,605 are in KEV): it waits for evidence. The other
-~384,000 CVEs are *track* or *track\**, and within those the order comes from EPSS. Whether that
-order is any good is the question of the next stage.
+~384,000 CVEs are *track* or *track\**, and within those the order comes from EPSS.
 
-> **Caution for the backtest.** This ranking uses today's KEV, which is also what "exploited" will
-> mean in the backtest. Evaluating it on the past requires the KEV and EPSS of each past date,
-> not today's, or the result is circular.
+## Backtest: does the ranking work?
+
+Each month from January 2022 to September 2026 (57 decisions), the backtest asks every strategy
+to rank all open CVEs **with only what was known that day**, then checks which CVEs entered CISA
+KEV in the following 30 days.
+
+![Coverage by monthly budget](docs/img/backtest_coverage.png)
+
+| Strategy | 100 a month (0.04% of open CVEs) | 500 (0.21%) | 1,000 (0.42%) | 5,000 (2.10%) | 10,000 (4.19%) |
+|---|---:|---:|---:|---:|---:|
+| **This project: SSVC act/attend, then EPSS** | **10.6%** | **17.3%** | **21.9%** | **34.8%** | **41.9%** |
+| EPSS alone | 5.1% | 11.7% | 16.3% | 30.0% | 37.8% |
+| Act, attend, track\*, then EPSS (dropped) | 9.8% | 15.2% | 19.1% | 30.1% | 37.7% |
+| BOD 26-04 timeline first (dropped) | 7.5% | 11.4% | 13.8% | 20.4% | 23.5% |
+| CVSS alone | 0.2% | 0.4% | 1.1% | 3.1% | 11.2% |
+| Random | 0.1% | 0.1% | 0.2% | 2.8% | 5.5% |
+
+*Share of the CVEs exploited in the next 30 days that each strategy had ranked within the monthly
+budget. 932 such CVEs; about 238,600 open CVEs per month.*
+
+**What it says:**
+
+- **CVSS barely beats chance.** Patching the 1,000 highest-CVSS CVEs a month caught 1.1% of what
+  was exploited next; in 2023 and 2024, none. Thousands of CVEs share a 9.8, and severity says how
+  bad an exploit would be, not how likely one is.
+- **EPSS is 15 times better than CVSS** at the same effort, and evidence of exploitation that CISA
+  recorded before a CVE reached KEV (SSVC *act*/*attend*) adds to it: 21.9% at 1,000 a month.
+- **A third of exploitation cannot be caught monthly.** Besides the 932 CVEs above, 453 KEV
+  additions in those windows (32%) were CVEs published *after* the decision date. A monthly
+  cycle never sees them; only faster cycles or compensating controls do.
+
+**How the ranking got here.** The first version ordered by the BOD 26-04 timeline: impact before
+likelihood. It put ~36,000 "automatable, total impact" CVEs ahead of likely ones and lost to EPSS
+alone. The second ordered SSVC *track\** before *track*; from 2025, when CISA recorded thousands
+of public proofs of concept, those *track\** CVEs (none of which entered KEV within a month)
+pushed likely ones down. The final order treats *track* and *track\** alike, as SSVC itself does
+(both mean "standard timelines"). All three are kept in the backtest. Because the last change was
+made after looking at 2025-2026, the result is shown per period as well, and it holds in both:
+
+| Strategy, 1,000 CVEs a month | Before 2025 (670 exploited) | From 2025 (262 exploited) |
+|---|---:|---:|
+| **This project: SSVC act/attend, then EPSS** | **21.3%** | **23.3%** |
+| EPSS alone | 19.6% | 8.0% |
+| Act, attend, track\*, then EPSS (dropped) | 20.4% | 15.7% |
+| BOD 26-04 timeline first (dropped) | 13.7% | 14.1% |
+| CVSS alone | 1.0% | 1.1% |
+
+![Coverage per year](docs/img/backtest_by_year.png)
+
+**Point in time.** On each decision date a CVE is a candidate only if it was published, not yet in
+KEV and scored by EPSS that day; it gets that day's EPSS score, and CISA's SSVC assessment only if
+it was made before that day. A dbt unit test breaks if any of these rules is removed. Ties are
+broken by `md5(cve_id)`, which carries no information.
+
+**Limitations.**
+
+- KEV is a lower bound of exploitation: it lists what CISA confirmed, with a US-government focus.
+- CVSS scores and vectors are today's, not the date's; NVD's "Exploit" reference tags are not used
+  in the backtest at all, because they carry no date.
+- Only the latest CISA assessment of each CVE is available; one made after the date is ignored,
+  so earlier, different assessments are lost rather than leaked.
+- EPSS predicts exploitation activity, not KEV listing, which can lag it.
+
+Reproduce with `vulnprio ingest epss --monthly-since 2021-12-01`, `vulnprio transform` and
+`vulnprio report` (which prints these tables and draws the charts).
 
 ## Run it
 
@@ -235,11 +302,13 @@ pip install -r requirements-dev.txt -e .
 
 vulnprio ingest all              # KEV catalog, latest EPSS day, NVD (full first, then incremental)
 vulnprio ingest epss --date 2023-03-07
+vulnprio ingest epss --monthly-since 2021-12-01   # EPSS history for the backtest (~80 s)
 vulnprio ingest nvd --years 2024 # only some yearly feeds
 vulnprio ingest nvd --since 2026-10-01
 vulnprio transform               # dbt build: models + tests
 vulnprio transform --select marts
 vulnprio top --vendor apache --since 2025-01-01
+vulnprio report                  # backtest tables and charts (docs/img)
 vulnprio status
 ```
 
@@ -253,7 +322,7 @@ Data goes to `data/` (ignored by git); `VULNPRIO_DATA_DIR` and `VULNPRIO_WAREHOU
 
 ## Quality and security of the repository itself
 
-- `ci`: ruff (lint, including bandit security rules), 75 tests on Python 3.11 to 3.13 (several build the dbt project), and
+- `ci`: ruff (lint, including bandit security rules), 82 tests on Python 3.11 to 3.13 (several build the dbt project), and
   `pip-audit` failing the build on any known vulnerability in the pinned dependencies.
 - `codeql`: static analysis of the Python code and of the workflow files.
 - `live sources`: weekly run against the real CISA, FIRST and NVD endpoints, so a format change

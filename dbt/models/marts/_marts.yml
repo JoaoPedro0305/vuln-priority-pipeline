@@ -123,7 +123,7 @@ models:
         constraints: [{type: not_null}]
         data_tests: [unique]
       - name: priority_rank
-        description: 1 = patch first. Remediation timeline, then SSVC decision, then EPSS, then CVSS.
+        description: 1 = patch first. Known exploitation (KEV), then SSVC act/attend, then EPSS, then CVSS.
         data_type: bigint
         constraints: [{type: not_null}]
         data_tests: [unique]
@@ -227,11 +227,11 @@ unit_tests:
         - {cve_id: CVE-A, priority_rank: 1, exploitation: active, exploitation_evidence: kev, automatable: "yes",
            automatable_source: cisa, technical_impact: total, technical_impact_source: cisa, ssvc_decision: act,
            remediation: 3 days & forensic investigation, remediation_days: 3, forensic_investigation: true}
-        # B before C: same timeline, but track* beats track, despite C's higher EPSS.
-        - {cve_id: CVE-B, priority_rank: 2, exploitation: poc, exploitation_evidence: nvd exploit reference,
+        # C before B: track* and track rank together, so C's higher EPSS wins.
+        - {cve_id: CVE-B, priority_rank: 3, exploitation: poc, exploitation_evidence: nvd exploit reference,
            automatable: "no", automatable_source: cvss3, technical_impact: total, technical_impact_source: cvss3,
            ssvc_decision: track*, remediation: 14 days, remediation_days: 14, forensic_investigation: false}
-        - {cve_id: CVE-C, priority_rank: 3, exploitation: none, exploitation_evidence: no evidence, automatable: "yes",
+        - {cve_id: CVE-C, priority_rank: 2, exploitation: none, exploitation_evidence: no evidence, automatable: "yes",
            automatable_source: cvss2, technical_impact: partial, technical_impact_source: cvss2, ssvc_decision: track,
            remediation: 14 days, remediation_days: 14, forensic_investigation: false}
         - {cve_id: CVE-D, priority_rank: 4, exploitation: none, exploitation_evidence: no evidence, automatable: "no",
