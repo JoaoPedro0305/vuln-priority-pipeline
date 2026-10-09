@@ -18,3 +18,8 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+
+# dbt build output
+dbt/target/
+dbt/logs/
+dbt/.user.yml

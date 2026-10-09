@@ -1,0 +1,9 @@
+# Run from the repository root (`vulnprio transform` does), so the default path
+# points at the same warehouse the ingestion writes to.
+vulnprio:
+  target: local
+  outputs:
+    local:
+      type: duckdb
+      path: "{{ env_var('VULNPRIO_WAREHOUSE', 'data/warehouse.duckdb') }}"
+      threads: 4

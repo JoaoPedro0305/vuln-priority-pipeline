@@ -1,0 +1,106 @@
+version: 2
+
+models:
+  - name: cves
+    description: >
+      One row per published (not rejected) CVE with its severity, weakness, affected products,
+      exploitation evidence and latest EPSS score. Input of the priority score, the backtest
+      and the dashboard.
+    # The contract makes the build fail if a column is missing or changes type,
+    # instead of breaking whatever reads this table later.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: cve_id
+        data_type: varchar
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: published
+        data_type: timestamp
+        constraints: [{type: not_null}]
+      - name: last_modified
+        data_type: timestamp
+      - name: vuln_status
+        data_type: varchar
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [Received, Awaiting Analysis, Undergoing Analysis, Analyzed, Modified, Deferred]
+      - name: description
+        data_type: varchar
+      - name: cve_tags
+        data_type: varchar[]
+      - name: cvss_score
+        description: Headline CVSS base score (v3, else v4, else v2). NULL when no source scored the CVE.
+        data_type: decimal(3,1)
+        data_tests:
+          - values_between:
+              arguments: {min_value: 0, max_value: 10}
+      - name: cvss_severity
+        data_type: varchar
+      - name: cvss_family
+        description: CVSS family behind cvss_score ("3", "4" or "2").
+        data_type: varchar
+      - name: cvss3_score
+        data_type: decimal(3,1)
+      - name: cvss3_severity
+        data_type: varchar
+      - name: cvss3_vector
+        data_type: varchar
+      - name: cvss3_provider
+        description: "Who produced cvss3_score: nvd, cna (the publisher of the CVE) or other."
+        data_type: varchar
+      - name: cvss3_sources_disagree
+        description: NVD and the CNA both scored CVSS 3.1 and got different scores.
+        data_type: boolean
+      - name: cvss4_score
+        data_type: decimal(3,1)
+      - name: cvss4_severity
+        data_type: varchar
+      - name: cvss2_score
+        data_type: decimal(3,1)
+      - name: cwe_ids
+        data_type: varchar[]
+      - name: vendor
+        description: KEV's vendor name when listed there, else the most frequent CPE vendor.
+        data_type: varchar
+      - name: product
+        data_type: varchar
+      - name: products
+        description: Distinct "vendor:product" pairs from the vulnerable CPE entries.
+        data_type: varchar[]
+      - name: in_kev
+        description: Listed in CISA KEV, i.e. exploitation in the wild is confirmed.
+        data_type: boolean
+        constraints: [{type: not_null}]
+      - name: kev_date_added
+        data_type: date
+      - name: kev_due_date
+        data_type: date
+      - name: kev_ransomware
+        data_type: boolean
+      - name: has_exploit_reference
+        description: NVD tagged at least one reference as "Exploit" (public code or detailed write-up).
+        data_type: boolean
+      - name: has_patch_reference
+        data_type: boolean
+      - name: ssvc_exploitation
+        description: CISA SSVC exploitation status (none, poc, active).
+        data_type: varchar
+      - name: ssvc_automatable
+        data_type: varchar
+      - name: ssvc_technical_impact
+        data_type: varchar
+      - name: ssvc_assessed_at
+        data_type: timestamp
+      - name: epss
+        description: EPSS probability of exploitation in the next 30 days, from the latest loaded day.
+        data_type: double
+        data_tests:
+          - values_between:
+              arguments: {min_value: 0, max_value: 1}
+      - name: epss_percentile
+        data_type: double
+      - name: epss_date
+        data_type: date

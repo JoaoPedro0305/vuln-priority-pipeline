@@ -1,4 +1,4 @@
-"""Command line: `vulnprio ingest kev|epss|nvd|all` and `vulnprio status`."""
+"""Command line: `vulnprio ingest kev|epss|nvd|all`, `vulnprio transform` and `vulnprio status`."""
 
 import argparse
 import logging
@@ -13,6 +13,7 @@ from vulnprio.ingest import ingest_epss, ingest_kev, ingest_nvd
 from vulnprio.sources.epss import EpssError
 from vulnprio.sources.kev import KevError
 from vulnprio.sources.nvd import NvdError
+from vulnprio.transform import TransformError, run_dbt
 from vulnprio.warehouse import connect
 
 log = logging.getLogger("vulnprio")
@@ -35,6 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
     nvd_mode.add_argument("--full", action="store_true", help="NVD: rebuild from the yearly feeds")
     nvd_mode.add_argument("--years", type=int, nargs="+", metavar="YEAR", help="NVD: load only these yearly feeds")
     nvd_mode.add_argument("--since", type=date.fromisoformat, help="NVD: load API changes since YYYY-MM-DD")
+
+    transform = commands.add_parser("transform", help="build and test the dbt models (staging, marts)")
+    transform.add_argument("--select", help="dbt selection, e.g. 'marts' or 'int_cve_cvss+'")
 
     commands.add_parser("status", help="show what is loaded")
     return parser
@@ -102,6 +106,15 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--full, --years and --since only apply to NVD")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if args.command == "transform":
+        # dbt opens the warehouse itself; no connection is held here meanwhile.
+        try:
+            run_dbt("build", warehouse=args.warehouse, select=args.select)
+        except TransformError as err:
+            log.error("%s", err)
+            return 1
+        return 0
+
     con = connect(args.warehouse)
     try:
         if args.command == "ingest":
