@@ -38,7 +38,7 @@ Built in stages, one pull request each:
 - [x] **3. dbt models**: staging, intermediate and a `cves` mart, with data tests, a unit test and a contract
 - [x] **4. Priority ranking** from CISA's SSVC decision table and the BOD 26-04 remediation timelines
 - [x] **5. Backtest** of patching strategies on 57 months of point-in-time EPSS and KEV
-- [ ] 6. Dependencies of real repositories, matched through OSV.dev
+- [x] **6. Dependencies of real systems**: resolved with pip, matched through OSV.dev, decided per system
 - [ ] 7. Daily run and public dashboard on GitHub Pages
 - [ ] 8. Automatic issue when a dependency enters KEV
 - [ ] 9. OpenSSF Scorecard and v1.0 release
@@ -291,6 +291,63 @@ broken by `md5(cve_id)`, which carries no information.
 Reproduce with `vulnprio ingest epss --monthly-since 2021-12-01`, `vulnprio transform` and
 `vulnprio report` (which prints these tables and draws the charts).
 
+## Your own dependencies
+
+The same ranking, applied to real systems. `assets.toml` lists them: a GitHub repository or a
+local folder, its requirement files, and the two facts CISA's tables need about the system itself,
+whether it is reachable from the internet and how much depends on it.
+
+```bash
+vulnprio ingest deps      # resolve, match against OSV.dev
+vulnprio transform        # decide per asset
+vulnprio findings         # what to upgrade, most urgent first
+```
+
+```text
+asset                             exposed  impact   packages vulnerable  flaws  fix within
+example: legacy web app           yes      high           15          7     84  3 days
+brazil-economic-data-pipeline     no       low            22          0      0  -
+ssh-bruteforce-analysis           no       low            35          0      0  -
+vuln-priority-pipeline            no       low            93          0      0  -
+
+Upgrades, most urgent first:
+  example: legacy web app: django 2.2 -> 5.2.17
+      fixes 43 vulnerabilities; attend, within 3 days; worst: CVE-2020-7471
+  example: legacy web app: requests 2.19.0 -> 2.33.0
+      fixes 5 vulnerabilities; attend, within 14 days; worst: CVE-2018-18074
+  ...
+```
+
+The three real repositories (150 packages counting transitive ones, all pinned and kept current
+by Dependabot) have no known vulnerability. The "legacy web app" is an
+[intentional example](examples/legacy-web-app/README.md) with 2017-2019 versions, there to show
+what findings look like.
+
+**How it works.**
+
+1. **Requirement files are untrusted input.** Only package requirements and `-r`/`-c` includes
+   inside the same tree are accepted. Anything that could point pip elsewhere (`--index-url`,
+   `--find-links`, `-e`, direct URLs, `../` paths) is refused with the file and line.
+2. **Transitive dependencies count.** pip resolves the full set with `install --dry-run --report`,
+   for Linux and the asset's Python version, **wheels only**: nothing is installed and no package
+   code runs. Packages published only as source need their build script run to reveal their own
+   dependencies; that is allowed only for assets marked `trust_build_scripts` (this repository,
+   because of `dbt-core-experimental-parser`).
+3. **[OSV.dev](https://osv.dev)** says which advisories affect each version. The same flaw often
+   appears as a GitHub advisory, a PyPI advisory and a CVE; they are grouped under the CVE id, and
+   OSV records are cached by their modification time.
+4. **Fix versions** come from the advisories' affected ranges, compared with Python's version
+   rules (`2.10` > `2.9`). For each package, the upgrade target is the version that fixes every
+   known flaw.
+5. **A decision per asset.** CVE facts (KEV, EPSS, exploitation, automatable, impact) come from
+   `cve_priorities`; the asset supplies exposure and mission impact. The same CVE can be *act*
+   within 3 days on an internet-facing system and *attend* within 14 days on an internal job (a
+   dbt unit test checks exactly that). Flaws without a CVE are judged from their OSV CVSS vector.
+
+**Why not just Dependabot alerts?** They cover one repository at a time and sort by CVSS severity,
+which the backtest shows barely predicts exploitation. This adds one view across systems, ranked by
+exploitation evidence and EPSS, with a deadline that depends on each system's exposure.
+
 ## Run it
 
 Requires Python 3.11+.
@@ -309,6 +366,8 @@ vulnprio transform               # dbt build: models + tests
 vulnprio transform --select marts
 vulnprio top --vendor apache --since 2025-01-01
 vulnprio report                  # backtest tables and charts (docs/img)
+vulnprio ingest deps             # dependencies of the systems in assets.toml
+vulnprio findings --details      # their vulnerabilities and upgrades (after transform)
 vulnprio status
 ```
 
@@ -322,10 +381,10 @@ Data goes to `data/` (ignored by git); `VULNPRIO_DATA_DIR` and `VULNPRIO_WAREHOU
 
 ## Quality and security of the repository itself
 
-- `ci`: ruff (lint, including bandit security rules), 82 tests on Python 3.11 to 3.13 (several build the dbt project), and
+- `ci`: ruff (lint, including bandit security rules), 119 tests on Python 3.11 to 3.13 (several build the dbt project), and
   `pip-audit` failing the build on any known vulnerability in the pinned dependencies.
 - `codeql`: static analysis of the Python code and of the workflow files.
-- `live sources`: weekly run against the real CISA, FIRST and NVD endpoints, so a format change
+- `live sources`: weekly run against the real CISA, FIRST, NVD, GitHub and OSV.dev endpoints, so a format change
   is caught even when the code does not change.
 - Exact dependency pins and GitHub Actions pinned by commit hash, both updated by Dependabot.
   Workflows run with a read-only token.
