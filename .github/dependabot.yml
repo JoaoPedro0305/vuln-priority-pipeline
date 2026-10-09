@@ -1,0 +1,18 @@
+# Monthly pull requests when a pinned dependency has a new version.
+# Each one runs the full CI before it can be merged.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: monthly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  # Actions are pinned by commit hash; Dependabot updates the hash and the
+  # version comment next to it together.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
