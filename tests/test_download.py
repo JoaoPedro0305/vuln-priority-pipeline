@@ -5,7 +5,7 @@ import requests
 import responses
 
 from vulnprio.config import USER_AGENT
-from vulnprio.download import DownloadError, NotPublishedError, download, make_session
+from vulnprio.download import DownloadError, NotPublishedError, StalledDownloadError, download, make_session
 
 URL = "https://example.test/data.json"
 
@@ -64,3 +64,55 @@ def test_session_retries_rate_limits_and_server_errors():
     assert retry.total == 5
     assert {429, 500, 502, 503, 504} <= set(retry.status_forcelist)
     assert retry.respect_retry_after_header
+
+
+class FakeClock:
+    """Each reading is `step` seconds after the previous one."""
+
+    def __init__(self, step):
+        self.now = 0.0
+        self.step = step
+
+    def __call__(self):
+        self.now += self.step
+        return self.now
+
+
+@responses.activate
+def test_stalled_transfer_is_retried_then_abandoned(tmp_path):
+    # 4 chunks of 64 KB, each "taking" 31 s: about 2 KB/s, far below the minimum.
+    responses.get(URL, body=b"x" * (4 * 64 * 1024))
+    pauses = []
+
+    with pytest.raises(StalledDownloadError, match="KB/s"):
+        download(make_session(), URL, tmp_path / "data.json", clock=FakeClock(31), sleep=pauses.append)
+    assert len(responses.calls) == 3  # three attempts
+    assert len(pauses) == 2
+    assert list(tmp_path.iterdir()) == []
+
+
+@responses.activate
+def test_fast_transfer_is_not_flagged(tmp_path):
+    responses.get(URL, body=b"x" * (4 * 64 * 1024))
+
+    result = download(make_session(), URL, tmp_path / "data.json", clock=FakeClock(0.01))
+    assert result.size == 4 * 64 * 1024
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_a_stall_on_the_first_attempt_recovers_on_the_second(tmp_path):
+    responses.get(URL, body=b"x" * (4 * 64 * 1024))
+    clocks = iter([FakeClock(31), FakeClock(0.01)])
+    current = next(clocks)
+
+    def clock():
+        return current()
+
+    def next_attempt(seconds):
+        nonlocal current
+        current = next(clocks)
+
+    result = download(make_session(), URL, tmp_path / "data.json", clock=clock, sleep=next_attempt)
+    assert result.path.read_bytes() == b"x" * (4 * 64 * 1024)
+    assert len(responses.calls) == 2

@@ -39,8 +39,11 @@ API_PAGE_SIZE = 2000  # the API maximum
 API_MAX_WINDOW = timedelta(days=120)  # the API refuses longer lastModified ranges
 API_DELAY = 6.0  # seconds between requests without a key (NVD's recommendation)
 API_DELAY_WITH_KEY = 0.6
-# A yearly feed is one JSON object; the largest is already ~420 MB uncompressed.
-MAX_FEED_BYTES = 1_500_000_000
+# DuckDB reads each JSON file as one object and reserves a buffer of this size
+# per file being read. It is set per load from the real sizes (a yearly feed is
+# up to ~420 MB uncompressed, an API page ~20 MB) instead of one large constant,
+# which ran out of memory when reading many API pages in parallel.
+OBJECT_SIZE_MARGIN = 1024 * 1024
 
 
 class NvdError(Exception):
@@ -111,13 +114,13 @@ def sync_feeds(
     """Load the yearly feeds, one at a time. Returns the number of CVEs loaded.
 
     With `record_sync`, a completed run is recorded in raw.nvd_sync, covering
-    changes up to the oldest feed's generation time.
+    changes up to the latest lastModified now stored. NVD regenerates a yearly
+    feed only when one of its CVEs changes (old years keep the same file for
+    weeks), so a feed's age does not mean it is stale.
     """
     loaded = 0
-    covered_until = []
     for year in years:
         meta = _fetch_meta(session, year)
-        covered_until.append(meta.last_modified)
         if _feed_already_loaded(con, year, meta.sha256):
             log.info("NVD feed %d unchanged since its last load, skipped", year)
             continue
@@ -137,11 +140,14 @@ def sync_feeds(
         # Logged with the .meta hash (uncompressed content), so an unchanged
         # feed is recognized next time before downloading it.
         downloaded = replace(downloaded, sha256=meta.sha256)
-        loaded += _load_files(con, [downloaded.path], downloaded, f"feed {year}", min_rows=1)
+        loaded += _load_files(
+            con, [downloaded.path], downloaded, f"feed {year}", min_rows=1, max_object_bytes=meta.size
+        )
 
     if record_sync:
+        latest_change = con.execute("SELECT max(last_modified) FROM raw.nvd").fetchone()[0]
         with transaction(con):
-            _record_sync(con, "feeds", min(covered_until), loaded)
+            _record_sync(con, "feeds", latest_change, loaded)
     return loaded
 
 
@@ -249,7 +255,10 @@ def sync_api(
     fetched = fetch_api(session, start, end, api_dir, api_key=api_key, sleep=sleep)
     source_file = Downloaded(path=api_dir, url=config.NVD_API_URL, sha256=fetched.sha256, size=fetched.size)
     window = f"api {start:%Y-%m-%dT%H:%M} to {end:%Y-%m-%dT%H:%M}"
-    return _load_files(con, fetched.pages, source_file, window, min_rows=0, sync=("api", end))
+    largest_page = max(page.stat().st_size for page in fetched.pages)
+    return _load_files(
+        con, fetched.pages, source_file, window, min_rows=0, max_object_bytes=largest_page, sync=("api", end)
+    )
 
 
 # --- Loading -----------------------------------------------------------------
@@ -329,10 +338,13 @@ MERGE_SQL = """
 """
 
 
-def stage_files(con: duckdb.DuckDBPyConnection, paths: list[Path]) -> int:
-    """Read feed or API files into the nvd_stage temp table. Returns the CVE count."""
+def stage_files(con: duckdb.DuckDBPyConnection, paths: list[Path], max_object_bytes: int) -> int:
+    """Read feed or API files into the nvd_stage temp table. Returns the CVE count.
+
+    `max_object_bytes` is the uncompressed size of the largest file.
+    """
     try:
-        con.execute(STAGE_SQL, [[str(p) for p in paths], MAX_FEED_BYTES])
+        con.execute(STAGE_SQL, [[str(p) for p in paths], max_object_bytes + OBJECT_SIZE_MARGIN])
     except duckdb.Error as err:
         raise NvdError(f"could not read {paths[0].name}: {err}") from err
     duplicates = con.execute(DEDUPE_SQL).fetchone()[0]
@@ -367,11 +379,12 @@ def _load_files(
     version: str,
     *,
     min_rows: int,
+    max_object_bytes: int,
     sync: tuple[str, datetime] | None = None,
 ) -> int:
     """Stage, check and merge files in one transaction. Returns the CVE count."""
     loaded_at = utc_now()
-    rows = stage_files(con, paths)
+    rows = stage_files(con, paths, max_object_bytes)
     try:
         check_stage(con, min_rows)
         new, updated = con.execute(COUNT_CHANGES_SQL).fetchone()

@@ -63,6 +63,9 @@ flowchart TD
   version that scored it.
 - **Provenance.** `raw.load_log` records every load: source version, row count, final URL and the
   SHA-256 of the file.
+- **Stalled transfers.** A connection that slows to a trickle never hits the read timeout, so
+  each download is also held to a minimum speed (50 KB/s over 30 s windows) and started again
+  up to 3 times. NVD feeds do this: one stalled at 15 KB/s, then took seconds on a new connection.
 
 ### NVD: full and incremental
 
@@ -73,8 +76,13 @@ flowchart TD
 | First run, `--full`, or last sync over 90 days ago | Downloads the 25 yearly feeds (2002 to now, ~225 MB compressed), checks each against the SHA-256 in its `.meta` file and loads them one at a time. Feeds unchanged since their last load are skipped before downloading. |
 | Last sync within 90 days | Asks the CVE API for everything modified since then, minus one day of overlap: a few requests instead of 225 MB. |
 
-- **Watermark.** `raw.nvd_sync` records how far each complete sync covers (for feeds, the
-  generation time of the oldest feed). The next incremental run starts from there.
+- **Watermark.** `raw.nvd_sync` records how far each complete sync covers: the end of the API
+  window, or after a feed rebuild the latest `lastModified` loaded. (Not the age of the oldest
+  feed: NVD only regenerates a yearly feed when one of its CVEs changes, so the 2003 file can be
+  weeks old and still current.) The next incremental run starts there, minus one day.
+- **Why the overlap.** NVD sometimes makes a change visible in the API minutes after its
+  `lastModified` time. In testing, a run caught 35 CVEs inside a window that a run 3 minutes
+  earlier had already covered.
 - **Order-independent merge.** A stored CVE is only replaced by a version with an equal or later
   `lastModified`, so an older feed loaded after a newer API page changes nothing, and any load can
   be repeated safely. A CVE that changes while the API is being paged through arrives twice; the
@@ -85,6 +93,9 @@ flowchart TD
 - **What is kept.** Scalar fields are typed; `metrics` (CVSS v2, v3.0, v3.1 and v4.0, from NVD and
   from the CNA), `weaknesses` and `references` stay as published JSON for dbt to interpret. The
   configurations tree, the largest field, is reduced to the distinct vulnerable CPE strings.
+- **Checked against the source.** After a full rebuild and two incremental runs the table held
+  403,636 CVEs, exactly the `totalResults` the API reported at that moment. A full rebuild takes
+  about 5 to 15 minutes depending on NVD's servers; a daily incremental run about 30 seconds.
 - **Why not the "modified" feed?** NVD documents a feed with the last 8 days of changes, but it
   answered 404 throughout development (its `.meta` file exists). The API covers the same need.
 
@@ -114,7 +125,7 @@ Data goes to `data/` (ignored by git); `VULNPRIO_DATA_DIR` and `VULNPRIO_WAREHOU
 
 ## Quality and security of the repository itself
 
-- `ci`: ruff (lint, including bandit security rules), 65 tests on Python 3.11 to 3.13, and
+- `ci`: ruff (lint, including bandit security rules), 68 tests on Python 3.11 to 3.13, and
   `pip-audit` failing the build on any known vulnerability in the pinned dependencies.
 - `codeql`: static analysis of the Python code and of the workflow files.
 - `live sources`: weekly run against the real CISA, FIRST and NVD endpoints, so a format change

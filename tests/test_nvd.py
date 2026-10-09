@@ -126,18 +126,19 @@ def test_feed_that_never_matches_its_meta_is_refused(con, tmp_path):
 
 
 @responses.activate
-def test_complete_sync_covers_up_to_the_oldest_feed(con, tmp_path):
-    serve_feed(2023, [nvd_cve("CVE-2023-0001")], modified="2026-01-15T03:05:00-05:00")
-    serve_feed(2024, [nvd_cve("CVE-2024-0001")], modified="2026-01-15T03:01:00-05:00")
+def test_complete_sync_covers_up_to_the_latest_change_loaded(con, tmp_path):
+    # The 2023 feed is weeks old: NVD only regenerates a feed when one of its CVEs changes.
+    serve_feed(2023, [nvd_cve("CVE-2023-0001", "2025-11-20T10:00:00.000")], modified="2025-11-20T03:05:00-05:00")
+    serve_feed(2024, [nvd_cve("CVE-2024-0001", "2026-01-15T07:30:00.000")], modified="2026-01-15T03:01:00-05:00")
 
     nvd.sync_feeds(con, make_session(), [2023, 2024], tmp_path, record_sync=True)
 
     assert con.execute("SELECT mode, covered_until, cve_count FROM raw.nvd_sync").fetchone() == (
         "feeds",
-        datetime(2026, 1, 15, 8, 1),
+        datetime(2026, 1, 15, 7, 30),
         2,
     )
-    assert nvd.watermark(con) == datetime(2026, 1, 15, 8, 1)
+    assert nvd.watermark(con) == datetime(2026, 1, 15, 7, 30)
 
 
 @responses.activate
@@ -274,8 +275,8 @@ def test_api_with_no_changes_still_records_the_sync(con, tmp_path):
 @responses.activate
 def test_ingest_nvd_picks_the_mode_from_the_last_sync(con, tmp_path):
     # Feeds exist for 2002 and 2003 when "now" is in 2003.
-    serve_feed(2002, [nvd_cve("CVE-2002-0001")], modified="2003-01-10T03:00:00-05:00")
-    serve_feed(2003, [nvd_cve("CVE-2003-0001")], modified="2003-01-10T03:00:00-05:00")
+    serve_feed(2002, [nvd_cve("CVE-2002-0001", "2002-12-01T00:00:00.000")], modified="2002-12-01T03:00:00-05:00")
+    serve_feed(2003, [nvd_cve("CVE-2003-0001", "2003-01-10T08:00:00.000")], modified="2003-01-10T03:00:00-05:00")
     responses.get(config.NVD_API_URL, body=nvd_doc([nvd_cve("CVE-2003-0002", "2003-01-11T00:00:00.000")]))
     now = datetime(2003, 1, 10, 12, 0)
 

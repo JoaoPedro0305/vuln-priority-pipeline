@@ -50,7 +50,7 @@ def test_ingest_all_then_status(setup, capsys):
     assert "2026.01.15" in out
     assert "25,000" in out
     assert "EPSS: 1 day(s)" in out
-    assert "NVD:  3 CVEs, changes covered until 2026-01-15 08:00 UTC" in out
+    assert "NVD:  3 CVEs, changes covered until 2024-02-01 00:00 UTC" in out
 
 
 @responses.activate
