@@ -73,3 +73,67 @@ def epss_file(
 
 def epss_rows(n: int) -> list[tuple]:
     return [(f"CVE-2024-{i:05d}", 0.001 + i / (n * 2), i / n) for i in range(n)]
+
+
+def nvd_cve(cve_id: str, last_modified: str = "2024-02-01T00:00:00.000", **overrides) -> dict:
+    cve = {
+        "id": cve_id,
+        "sourceIdentifier": "cna@example.test",
+        "published": "2024-01-15T10:00:00.000",
+        "lastModified": last_modified,
+        "vulnStatus": "Analyzed",
+        "cveTags": [],
+        "descriptions": [{"lang": "es", "value": "Una prueba."}, {"lang": "en", "value": "A test."}],
+        "metrics": {
+            "cvssMetricV31": [
+                {
+                    "source": "nvd@nist.gov",
+                    "type": "Primary",
+                    "cvssData": {"version": "3.1", "baseScore": 9.8, "baseSeverity": "CRITICAL"},
+                }
+            ]
+        },
+        "weaknesses": [
+            {"source": "nvd@nist.gov", "type": "Primary", "description": [{"lang": "en", "value": "CWE-78"}]}
+        ],
+        "configurations": [
+            {
+                "nodes": [
+                    {
+                        "cpeMatch": [
+                            {"vulnerable": True, "criteria": "cpe:2.3:a:acme:widget:*:*:*:*:*:*:*:*"},
+                            {"vulnerable": False, "criteria": "cpe:2.3:o:linux:linux_kernel:-:*:*:*:*:*:*:*"},
+                            {"vulnerable": True, "criteria": "cpe:2.3:a:acme:widget:*:*:*:*:*:*:*:*"},
+                        ]
+                    }
+                ]
+            }
+        ],
+        "references": [{"url": "https://example.test/poc", "source": "cna@example.test", "tags": ["Exploit"]}],
+    }
+    cve.update(overrides)
+    return cve
+
+
+def nvd_doc(cves: list[dict], total: int | None = None, start: int = 0) -> bytes:
+    """A feed or API page: both have the same shape."""
+    return json.dumps(
+        {
+            "resultsPerPage": len(cves),
+            "startIndex": start,
+            "totalResults": len(cves) if total is None else total,
+            "format": "NVD_CVE",
+            "version": "2.0",
+            "vulnerabilities": [{"cve": cve} for cve in cves],
+        }
+    ).encode("utf-8")
+
+
+def nvd_feed(cves: list[dict], modified: str = "2026-01-15T03:00:00-05:00") -> tuple[bytes, str]:
+    """A gzipped yearly feed and its matching .meta text."""
+    raw = nvd_doc(cves)
+    meta = (
+        f"lastModifiedDate:{modified}\r\nsize:{len(raw)}\r\nzipSize:0\r\ngzSize:0\r\n"
+        f"sha256:{hashlib.sha256(raw).hexdigest().upper()}\r\n"
+    )
+    return gzip.compress(raw), meta
