@@ -5,6 +5,9 @@ failed load leaves the warehouse exactly as it was before.
 """
 
 import logging
+import re
+import shutil
+import subprocess
 import time
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
@@ -15,7 +18,7 @@ import requests
 
 from vulnprio import config
 from vulnprio.download import DownloadError, NotPublishedError, download, make_session
-from vulnprio.sources import epss, kev, nvd
+from vulnprio.sources import deps, epss, kev, nvd
 from vulnprio.warehouse import utc_now
 
 log = logging.getLogger(__name__)
@@ -154,3 +157,53 @@ def ingest_epss_history(
         else:
             log.warning("EPSS: no file in the first %d days of %s", tries_per_month, first.strftime("%Y-%m"))
     return loaded
+
+
+def ingest_deps(
+    con: duckdb.DuckDBPyConnection,
+    session: requests.Session,
+    assets_path: Path | None = None,
+    landing_dir: Path | None = None,
+) -> int:
+    """Scan every asset in assets.toml. Returns the number of findings.
+
+    One asset failing does not stop the others; the error is raised at the end.
+    Assets removed from the file are removed from the warehouse.
+    """
+    assets = deps.load_assets(assets_path or config.ASSETS_PATH)
+    landing_dir = landing_dir or config.LANDING_DIR
+    loaded_at = utc_now()
+    findings = 0
+    failed = []
+
+    for asset in assets:
+        work = landing_dir / "deps" / re.sub(r"[^a-z0-9]+", "-", asset.name.lower()).strip("-")
+        shutil.rmtree(work, ignore_errors=True)
+        try:
+            files = deps.fetch_requirements(session, asset, work / "requirements")
+            packages = deps.resolve(asset, files, work / "pip-report.json")
+            matches = deps.query_osv(session, packages)
+            wanted = {osv_id: modified for vulns in matches.values() for osv_id, modified in vulns.items()}
+            fetched = deps.fetch_vulnerabilities(con, session, wanted, loaded_at)
+            count = deps.load_asset(con, asset, packages, matches, loaded_at)
+        except (deps.DepsError, requests.RequestException, subprocess.TimeoutExpired) as err:
+            log.error("dependencies of %s: %s", asset.name, err)
+            failed.append(asset.name)
+            continue
+        findings += count
+        log.info(
+            "dependencies of %s: %d packages (%d direct), %d vulnerabilities (%d advisories fetched)",
+            asset.name,
+            len(packages),
+            sum(p.direct for p in packages),
+            count,
+            fetched,
+        )
+
+    names = [a.name for a in assets]
+    for table in ("raw.assets", "raw.asset_packages", "raw.asset_vulns"):
+        con.execute(f"DELETE FROM {table} WHERE NOT list_contains(?, asset)", [names])  # noqa: S608
+
+    if failed:
+        raise deps.DepsError(f"could not scan: {', '.join(failed)}")
+    return findings

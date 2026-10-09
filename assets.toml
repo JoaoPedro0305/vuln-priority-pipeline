@@ -1,0 +1,53 @@
+# The systems whose Python dependencies are checked against OSV.dev.
+#
+# Each asset is a set of requirement files, from a GitHub repository or from a
+# folder of this one. Dependencies are resolved like pip would install them
+# (transitive ones included) for the given Python version on Linux, without
+# installing or running any of them.
+#
+# publicly_exposed and mission_impact are the two inputs of CISA's decision
+# tables that describe the system, not the vulnerability:
+#   publicly_exposed  "yes" if the system can be reached from the internet
+#   mission_impact    "low", "medium" or "high": how much depends on it
+#
+# trust_build_scripts = true lets pip run the build script of packages published
+# only as source code (to learn their dependencies). Only for repositories you
+# control; the resolution is then for the Python and OS running the scan.
+
+[[asset]]
+name = "brazil-economic-data-pipeline"
+repo = "JoaoPedro0305/brazil-economic-data-pipeline"
+ref = "main"
+requirements = ["requirements-dev.txt"]
+python = "3.13"
+publicly_exposed = "no"   # scheduled job; Postgres bound to 127.0.0.1
+mission_impact = "low"
+
+[[asset]]
+name = "ssh-bruteforce-analysis"
+repo = "JoaoPedro0305/ssh-bruteforce-analysis"
+ref = "main"
+requirements = ["requirements-dev.txt"]
+python = "3.13"
+publicly_exposed = "no"   # offline analysis of log files
+mission_impact = "low"
+
+[[asset]]
+name = "vuln-priority-pipeline"
+repo = "JoaoPedro0305/vuln-priority-pipeline"
+ref = "main"
+requirements = ["requirements-dev.txt"]
+python = "3.13"
+trust_build_scripts = true   # dbt-core-experimental-parser is published as source only
+publicly_exposed = "no"   # runs in GitHub Actions; publishes a static page
+mission_impact = "low"
+
+# An intentionally outdated web application, to show what findings look like.
+# Not a real system: see examples/legacy-web-app/README.md.
+[[asset]]
+name = "example: legacy web app"
+path = "examples/legacy-web-app"
+requirements = ["legacy-dependencies.txt"]
+python = "3.13"
+publicly_exposed = "yes"
+mission_impact = "high"
