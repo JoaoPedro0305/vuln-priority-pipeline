@@ -1,0 +1,7 @@
+# Intentionally outdated versions (2017-2019). Not used by any code: an example
+# input for `vulnprio ingest deps`. Never install these.
+flask==0.12.2
+django==2.2.0
+requests==2.19.0
+jinja2==2.10
+pyjwt==1.5.0
