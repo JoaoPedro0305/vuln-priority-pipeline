@@ -44,6 +44,8 @@ def test_ingest_all_then_status(setup, capsys):
 
     assert main(["--warehouse", str(warehouse), "ingest", "all"]) == 0
     assert counts(warehouse) == (2, 25_000, 3)
+    # Progress is logged (importing dbt must not silence the CLI's logging).
+    assert "KEV catalog 2026.01.15 loaded: 2 CVEs" in capsys.readouterr().err
 
     assert main(["--warehouse", str(warehouse), "status"]) == 0
     out = capsys.readouterr().out
