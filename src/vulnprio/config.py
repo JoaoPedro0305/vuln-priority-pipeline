@@ -11,6 +11,7 @@ from pathlib import Path
 DATA_DIR = Path(os.environ.get("VULNPRIO_DATA_DIR", "data"))
 LANDING_DIR = DATA_DIR / "landing"  # downloaded files, exactly as served
 WAREHOUSE_PATH = Path(os.environ.get("VULNPRIO_WAREHOUSE", DATA_DIR / "warehouse.duckdb"))
+DBT_DIR = Path(os.environ.get("VULNPRIO_DBT_DIR", "dbt"))  # the dbt project (models, tests)
 
 USER_AGENT = "vuln-priority-pipeline/0.1 (+https://github.com/JoaoPedro0305/vuln-priority-pipeline)"
 
