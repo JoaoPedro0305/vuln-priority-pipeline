@@ -47,9 +47,11 @@ per_family as (
         any_value(provider) filter (where family = 'v3' and preference = 1) as cvss3_provider,
         any_value(base_score) filter (where family = 'v4' and preference = 1) as cvss4_score,
         any_value(base_severity) filter (where family = 'v4' and preference = 1) as cvss4_severity,
+        any_value(vector) filter (where family = 'v4' and preference = 1) as cvss4_vector,
         any_value(provider) filter (where family = 'v4' and preference = 1) as cvss4_provider,
         any_value(base_score) filter (where family = 'v2' and preference = 1) as cvss2_score,
         any_value(base_severity) filter (where family = 'v2' and preference = 1) as cvss2_severity,
+        any_value(vector) filter (where family = 'v2' and preference = 1) as cvss2_vector,
         -- NVD and the CNA both scored v3.1 and got different results
         -- (NULL when one of them did not score it).
         max(base_score) filter (where cvss_version = '3.1' and provider = 'nvd')

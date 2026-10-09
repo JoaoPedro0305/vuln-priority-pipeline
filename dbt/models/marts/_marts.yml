@@ -58,8 +58,12 @@ models:
         data_type: decimal(3,1)
       - name: cvss4_severity
         data_type: varchar
+      - name: cvss4_vector
+        data_type: varchar
       - name: cvss2_score
         data_type: decimal(3,1)
+      - name: cvss2_vector
+        data_type: varchar
       - name: cwe_ids
         data_type: varchar[]
       - name: vendor
@@ -104,3 +108,132 @@ models:
         data_type: double
       - name: epss_date
         data_type: date
+
+  - name: cve_priorities
+    description: >
+      Patching priority of every published CVE from CISA's SSVC decision table and the BOD 26-04
+      remediation timelines, ordered by priority_rank. Organisation-specific inputs come from the
+      dbt variables mission_impact and publicly_exposed.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: cve_id
+        data_type: varchar
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: priority_rank
+        description: 1 = patch first. Remediation timeline, then SSVC decision, then EPSS, then CVSS.
+        data_type: bigint
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: remediation
+        description: BOD 26-04 timeline for these inputs.
+        data_type: varchar
+        constraints: [{type: not_null}]
+      - name: remediation_days
+        description: Days allowed by the timeline; NULL for "fix on system upgrade".
+        data_type: integer
+      - name: forensic_investigation
+        description: BOD 26-04 also requires checking whether the system was already compromised.
+        data_type: boolean
+      - name: ssvc_decision
+        description: CISA SSVC decision (track, track*, attend, act).
+        data_type: varchar
+        constraints: [{type: not_null}]
+      - name: priority_reason
+        description: The evidence behind the position, in words.
+        data_type: varchar
+      - name: exploitation
+        description: none, poc or active; the strongest of CISA's assessment, KEV and NVD exploit references.
+        data_type: varchar
+      - name: exploitation_evidence
+        description: "Where the exploitation status comes from: kev, cisa, nvd exploit reference or no evidence."
+        data_type: varchar
+      - name: automatable
+        data_type: varchar
+      - name: automatable_source
+        description: "cisa (assessed), cvss3/cvss4/cvss2 (derived from the vector) or unknown (assumed no)."
+        data_type: varchar
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [cisa, cvss3, cvss4, cvss2, unknown]
+      - name: technical_impact
+        data_type: varchar
+      - name: technical_impact_source
+        data_type: varchar
+      - name: in_kev
+        data_type: boolean
+      - name: kev_ransomware
+        data_type: boolean
+      - name: epss
+        data_type: double
+      - name: epss_percentile
+        data_type: double
+      - name: cvss_score
+        data_type: decimal(3,1)
+      - name: cvss_severity
+        data_type: varchar
+      - name: cvss3_provider
+        data_type: varchar
+      - name: vendor
+        data_type: varchar
+      - name: product
+        data_type: varchar
+      - name: published
+        data_type: timestamp
+
+unit_tests:
+  - name: priorities_combine_evidence_and_follow_cisa_tables
+    description: >
+      Evidence precedence (KEV over a stale CISA assessment), input derivation from v3 and v2
+      vectors, defaults when nothing is known, and the ordering, with the default variables
+      (mission_impact medium, publicly_exposed yes).
+    model: cve_priorities
+    # Fixed here so the test does not depend on the variables of the run.
+    overrides:
+      vars:
+        mission_impact: medium
+        publicly_exposed: "yes"
+    given:
+      - input: ref('cves')
+        rows:
+          # In KEV although CISA assessed it before as "poc": exploitation is active.
+          - {cve_id: CVE-A, in_kev: true, kev_ransomware: true, ssvc_exploitation: poc, ssvc_automatable: "yes",
+             ssvc_technical_impact: total, has_exploit_reference: false, epss: 0.5, cvss_score: 9.8}
+          # No CISA assessment: exploit reference -> poc; local attack -> not automatable; C:H/I:H -> total.
+          - {cve_id: CVE-B, in_kev: false, has_exploit_reference: true, epss: 0.01, cvss_score: 7.8,
+             cvss3_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"}
+          # Only a v2 vector: network, low complexity, no authentication -> automatable; partial impact.
+          - {cve_id: CVE-C, in_kev: false, has_exploit_reference: false, epss: 0.9, cvss_score: 7.5,
+             cvss2_vector: "AV:N/AC:L/Au:N/C:P/I:P/A:P"}
+          # Nothing known: not automatable, partial impact, no exploitation.
+          - {cve_id: CVE-D, in_kev: false, has_exploit_reference: false}
+      - input: ref('ssvc_cisa_coordinator')
+        rows:
+          - {exploitation: active, automatable: "yes", technical_impact: total, mission_impact: medium, decision: act}
+          - {exploitation: poc, automatable: "no", technical_impact: total, mission_impact: medium, decision: track*}
+          - {exploitation: none, automatable: "yes", technical_impact: partial, mission_impact: medium, decision: track}
+          - {exploitation: none, automatable: "no", technical_impact: partial, mission_impact: medium, decision: track}
+      - input: ref('bod_26_04_timelines')
+        rows:
+          - {in_kev: "yes", publicly_exposed: "yes", automatable: "yes", technical_impact: total, remediation: 3 days & forensic investigation}
+          - {in_kev: "no", publicly_exposed: "yes", automatable: "no", technical_impact: total, remediation: 14 days}
+          - {in_kev: "no", publicly_exposed: "yes", automatable: "yes", technical_impact: partial, remediation: 14 days}
+          - {in_kev: "no", publicly_exposed: "yes", automatable: "no", technical_impact: partial, remediation: 60 days}
+    expect:
+      rows:
+        - {cve_id: CVE-A, priority_rank: 1, exploitation: active, exploitation_evidence: kev, automatable: "yes",
+           automatable_source: cisa, technical_impact: total, technical_impact_source: cisa, ssvc_decision: act,
+           remediation: 3 days & forensic investigation, remediation_days: 3, forensic_investigation: true}
+        # B before C: same timeline, but track* beats track, despite C's higher EPSS.
+        - {cve_id: CVE-B, priority_rank: 2, exploitation: poc, exploitation_evidence: nvd exploit reference,
+           automatable: "no", automatable_source: cvss3, technical_impact: total, technical_impact_source: cvss3,
+           ssvc_decision: track*, remediation: 14 days, remediation_days: 14, forensic_investigation: false}
+        - {cve_id: CVE-C, priority_rank: 3, exploitation: none, exploitation_evidence: no evidence, automatable: "yes",
+           automatable_source: cvss2, technical_impact: partial, technical_impact_source: cvss2, ssvc_decision: track,
+           remediation: 14 days, remediation_days: 14, forensic_investigation: false}
+        - {cve_id: CVE-D, priority_rank: 4, exploitation: none, exploitation_evidence: no evidence, automatable: "no",
+           automatable_source: unknown, technical_impact: partial, technical_impact_source: unknown, ssvc_decision: track,
+           remediation: 60 days, remediation_days: 60, forensic_investigation: false}

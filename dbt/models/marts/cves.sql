@@ -19,7 +19,9 @@ select
     cvss.cvss3_sources_disagree,
     cvss.cvss4_score,
     cvss.cvss4_severity,
+    cvss.cvss4_vector,
     cvss.cvss2_score,
+    cvss.cvss2_vector,
 
     -- What and where
     coalesce(weak.cwe_ids, kev.cwe_ids, []) as cwe_ids,
