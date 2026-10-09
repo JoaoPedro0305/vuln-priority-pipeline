@@ -11,8 +11,9 @@
     vector. Mission impact and public exposure describe the organisation, not
     the vulnerability: they are dbt variables (see dbt_project.yml).
 
-    priority_rank orders everything: remediation timeline, then SSVC decision,
-    then EPSS, then CVSS.
+    priority_rank orders everything: known exploitation (KEV), SSVC decision,
+    EPSS, CVSS. The remediation timeline is the deadline for each CVE; it is
+    not used for ordering (see the priority_order macro and the backtest).
 #}
 
 {%- set mission_impact = var('mission_impact') -%}
@@ -33,30 +34,9 @@ with derived as (
             else 'none'
         end as derived_exploitation,
 
-        -- Automatable: reachable over the network, low complexity, no
-        -- privileges, no user interaction. Agrees with CISA on 92% of CVEs.
-        case
-            when cvss3_vector is not null
-                then {{ vector_has_all('cvss3_vector', ['AV:N', 'AC:L', 'PR:N', 'UI:N']) }}
-            when cvss4_vector is not null
-                then {{ vector_has_all('cvss4_vector', ['AV:N', 'AC:L', 'AT:N', 'PR:N', 'UI:N']) }}
-            when cvss2_vector is not null
-                then {{ vector_has_all('cvss2_vector', ['AV:N', 'AC:L', 'Au:N']) }}
-        end as derived_automatable,
-
-        -- Total technical impact: high (v2: complete) confidentiality and
-        -- integrity loss, i.e. control of the component. Agrees with CISA on 90%.
-        case
-            when cvss3_vector is not null then {{ vector_has_all('cvss3_vector', ['C:H', 'I:H']) }}
-            when cvss4_vector is not null then {{ vector_has_all('cvss4_vector', ['VC:H', 'VI:H']) }}
-            when cvss2_vector is not null then {{ vector_has_all('cvss2_vector', ['C:C', 'I:C']) }}
-        end as derived_total_impact,
-
-        case
-            when cvss3_vector is not null then 'cvss3'
-            when cvss4_vector is not null then 'cvss4'
-            when cvss2_vector is not null then 'cvss2'
-        end as vector_source
+        {{ automatable_from_vectors() }} as derived_automatable,
+        {{ total_impact_from_vectors() }} as derived_total_impact,
+        {{ vector_source() }} as vector_source
     from {{ ref('cves') }}
 ),
 
@@ -123,16 +103,7 @@ select
     cve_id,
     row_number() over (
         order by
-            case remediation
-                when '3 days & forensic investigation' then 1
-                when '3 days' then 2
-                when '14 days' then 3
-                when '60 days' then 4
-                else 5
-            end,
-            case ssvc_decision when 'act' then 1 when 'attend' then 2 when 'track*' then 3 else 4 end,
-            epss desc nulls last,
-            cvss_score desc nulls last,
+            {{ priority_order() }},
             published desc,
             cve_id
     ) as priority_rank,
