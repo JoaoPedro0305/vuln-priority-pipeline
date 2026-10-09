@@ -41,11 +41,11 @@ class Downloaded:
     size: int
 
 
-def make_session(retries: int = 5) -> requests.Session:
+def make_session(retries: int = 5, extra_retry_statuses: tuple[int, ...] = ()) -> requests.Session:
     retry = Retry(
         total=retries,
         backoff_factor=2,
-        status_forcelist=(429, 500, 502, 503, 504),
+        status_forcelist=(429, 500, 502, 503, 504, *extra_retry_statuses),
         allowed_methods=frozenset({"GET"}),
         respect_retry_after_header=True,
         raise_on_status=False,  # after the last retry, raise_for_status() reports it

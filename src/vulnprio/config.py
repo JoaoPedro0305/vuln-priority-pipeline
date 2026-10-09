@@ -19,3 +19,19 @@ KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulner
 # One gzipped CSV per day. "current" redirects to the latest published day.
 EPSS_URL = "https://epss.empiricalsecurity.com/epss_scores-{day}.csv.gz"
 EPSS_FIRST_DAY = date(2021, 4, 14)
+
+# NVD yearly feeds (full rebuild) and CVE API (incremental updates).
+# The 2002 feed also holds every older CVE (CVE-1999 to CVE-2001).
+NVD_FEED_URL = "https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-{year}.json.gz"
+NVD_META_URL = "https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-{year}.meta"
+NVD_FIRST_FEED_YEAR = 2002
+NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+
+
+def nvd_api_key() -> str | None:
+    """Optional free key (https://nvd.nist.gov/developers/request-an-api-key).
+
+    Raises the API limit from 5 to 50 requests per 30 seconds. Read from the
+    environment only, never from a file in the repository.
+    """
+    return os.environ.get("NVD_API_KEY") or None
