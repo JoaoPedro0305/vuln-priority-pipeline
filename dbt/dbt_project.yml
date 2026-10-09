@@ -4,6 +4,7 @@ config-version: 2
 profile: vulnprio
 
 model-paths: ["models"]
+seed-paths: ["seeds"]
 macro-paths: ["macros"]
 test-paths: ["tests"]
 target-path: target
@@ -24,6 +25,19 @@ models:
     marts:
       +schema: marts
       +materialized: table
+
+seeds:
+  vulnprio:
+    +schema: reference
+
+# The two inputs of CISA's decision tables that describe the organisation, not
+# the vulnerability. Override per run, e.g.
+#   vulnprio transform --vars '{mission_impact: high, publicly_exposed: "no"}'
+vars:
+  # SSVC "Mission & Well-Being Impact" of the affected systems: low, medium or high.
+  mission_impact: medium
+  # BOD 26-04 "Publicly Exposed": reachable from the internet. "yes" assumes the worst.
+  publicly_exposed: "yes"
 
 flags:
   send_anonymous_usage_stats: false

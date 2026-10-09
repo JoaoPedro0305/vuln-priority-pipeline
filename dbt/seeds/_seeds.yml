@@ -1,0 +1,63 @@
+version: 2
+
+seeds:
+  - name: ssvc_cisa_coordinator
+    description: >
+      CISA's SSVC decision table (CISA Coordinator 2.0.3): every combination of exploitation,
+      automatable, technical impact and mission & well-being impact, with its decision.
+      Copied from CERTCC/SSVC data/csv/cisa/cisa_coordinator_2_0_3.csv at commit
+      c5be80f180f031257b680c8f83e0e092387d29ef, with "public poc" written as "poc" (the value
+      NVD records use) and short column names.
+    config:
+      column_types:
+        exploitation: varchar
+        automatable: varchar
+        technical_impact: varchar
+        mission_impact: varchar
+        decision: varchar
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [exploitation, automatable, technical_impact, mission_impact]
+      - row_count:
+          arguments: {expected: 36}  # 3 x 2 x 2 x 3: the table is complete
+    columns:
+      - name: decision
+        description: >
+          track: remediate on the normal schedule; track*: same, but watch for changes;
+          attend: needs attention from leadership, sooner than usual;
+          act: remediate as soon as possible, with leadership involved.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [track, track*, attend, act]
+
+  - name: bod_26_04_timelines
+    description: >
+      Remediation timelines of CISA Binding Operational Directive 26-04 ("Prioritizing Security
+      Updates Based on Risk"). Copied from CERTCC/SSVC data/csv/cisa/cisa_bod_26_04_1_0_0.csv at
+      commit 396ade559cb90a52b4af5b4887a1db06b81dd5e4, with short column names.
+    config:
+      column_types:
+        in_kev: varchar
+        publicly_exposed: varchar
+        automatable: varchar
+        technical_impact: varchar
+        remediation: varchar
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [in_kev, publicly_exposed, automatable, technical_impact]
+      - row_count:
+          arguments: {expected: 16}  # 2 x 2 x 2 x 2
+    columns:
+      - name: remediation
+        data_tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - 3 days & forensic investigation
+                  - 3 days
+                  - 14 days
+                  - 60 days
+                  - fix on system upgrade
