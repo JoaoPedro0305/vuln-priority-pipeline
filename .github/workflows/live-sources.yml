@@ -1,7 +1,7 @@
 name: live sources
 
-# The tests use fake responses. This runs the real ingestion against CISA and
-# FIRST, so a change in their file formats shows up here within a week.
+# The tests use fake responses. This runs the real ingestion against CISA,
+# FIRST and NVD, so a change in their formats shows up here within a week.
 on:
   push:
     branches: [main]
@@ -16,7 +16,7 @@ permissions:
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,8 +31,17 @@ jobs:
       - name: Install
         run: pip install -r requirements.txt -e .
 
-      - name: Ingest the real sources
-        run: vulnprio ingest all
+      - name: Ingest KEV and the latest EPSS day
+        run: |
+          vulnprio ingest kev
+          vulnprio ingest epss
+
+      # Both NVD paths, without the full ~225 MB rebuild: the smallest yearly
+      # feed (checked against its .meta hash) and two days of API changes.
+      - name: Ingest NVD (one feed + API)
+        run: |
+          vulnprio ingest nvd --years 2002
+          vulnprio ingest nvd --since "$(date -u -d '2 days ago' +%F)"
 
       # One day of each EPSS file format, oldest first.
       - name: Ingest historical EPSS formats
