@@ -1,0 +1,4 @@
+# The only dependency of the job that writes GitHub issues (python -m vulnprio.issues):
+#   uv pip compile requirements-issues.in --universal --python-version 3.11 --generate-hashes -o requirements-issues.txt
+-c requirements.txt
+requests

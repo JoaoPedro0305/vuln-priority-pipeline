@@ -74,6 +74,9 @@ class Asset:
     mission_impact: str
     trust_build_scripts: bool = False
     alerts: bool = True  # open a GitHub issue for exploited flaws (see vulnprio.issues)
+    # Files listing only the direct dependencies, when `requirements` is a lock
+    # file that lists every package (e.g. requirements.in beside requirements.txt).
+    direct_requirements: tuple[str, ...] = ()
     repo: str | None = None  # "owner/name" on GitHub
     ref: str | None = None
     path: Path | None = None  # a local folder instead
@@ -115,6 +118,9 @@ def load_assets(config_path: Path) -> list[Asset]:
         alerts = entry.get("alerts", True)
         if not isinstance(trust, bool) or not isinstance(alerts, bool):
             raise DepsError(f"{where} ({name}): trust_build_scripts and alerts must be true or false")
+        direct = entry.get("direct_requirements", [])
+        if not isinstance(direct, list) or not all(isinstance(d, str) for d in direct):
+            raise DepsError(f"{where} ({name}): direct_requirements must be a list of files")
         repo = entry.get("repo")
         ref = entry.get("ref", "main")
         if repo and not (REPO.fullmatch(repo) and REF.fullmatch(ref) and ".." not in ref):
@@ -128,6 +134,7 @@ def load_assets(config_path: Path) -> list[Asset]:
                 mission_impact=mission,
                 trust_build_scripts=trust,
                 alerts=alerts,
+                direct_requirements=tuple(_safe_relative(d, where) for d in direct),
                 repo=repo,
                 ref=ref if repo else None,
                 path=None if repo else (config_path.parent / entry["path"]),
@@ -153,12 +160,31 @@ def _safe_relative(path: str, where: str) -> str:
 # --- requirement files ---------------------------------------------------------
 
 
+def _logical_lines(text: str) -> list[tuple[int, str]]:
+    """Join lines continued with a trailing backslash, as pip does (hash-pinned
+    lock files put each --hash on its own continued line). Numbered by first line."""
+    lines: list[tuple[int, str]] = []
+    pending, start = "", 0
+    for number, line in enumerate(text.splitlines(), start=1):
+        if not pending:
+            start = number
+        stripped = line.rstrip()
+        if stripped.endswith("\\"):
+            pending += stripped[:-1] + " "
+            continue
+        lines.append((start, pending + line))
+        pending = ""
+    if pending:
+        lines.append((start, pending))
+    return lines
+
+
 def check_requirements(text: str, filename: str) -> list[str]:
     """Validate a requirements file. Returns the files it includes (-r / -c)."""
     includes = []
-    for number, raw_line in enumerate(text.splitlines(), start=1):
+    for number, raw_line in _logical_lines(text):
         line = raw_line.split(" #", 1)[0].strip()
-        line = HASH_OPTION.sub("", line)  # pip-compile --generate-hashes output
+        line = HASH_OPTION.sub("", line)  # pip-compile / uv --generate-hashes output
         if not line or line.startswith("#"):
             continue
         where = f"{filename}:{number}"
@@ -178,9 +204,12 @@ def check_requirements(text: str, filename: str) -> list[str]:
     return includes
 
 
-def fetch_requirements(session: requests.Session, asset: Asset, dest: Path) -> list[Path]:
+def fetch_requirements(
+    session: requests.Session, asset: Asset, dest: Path, entries: tuple[str, ...] | None = None
+) -> list[Path]:
     """Copy the asset's requirement files (and their includes) into `dest`, validated."""
-    pending = list(asset.requirements)
+    entries = asset.requirements if entries is None else entries
+    pending = list(entries)
     seen: set[str] = set()
     entry_points = []
     while pending:
@@ -208,9 +237,21 @@ def fetch_requirements(session: requests.Session, asset: Asset, dest: Path) -> l
         target = dest / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
-        if relative in asset.requirements:
+        if relative in entries:
             entry_points.append(target)
     return entry_points
+
+
+def direct_names(session: requests.Session, asset: Asset, dest: Path) -> set[str]:
+    """Canonical names listed in the asset's direct_requirements files (and their includes)."""
+    fetch_requirements(session, asset, dest, entries=asset.direct_requirements)
+    names = set()
+    for path in sorted(p for p in dest.rglob("*") if p.is_file()):
+        for _, raw_line in _logical_lines(path.read_text(encoding="utf-8")):
+            line = HASH_OPTION.sub("", raw_line.split(" #", 1)[0].strip())
+            if line and not line.startswith(("#", "-")):
+                names.add(canonicalize_name(Requirement(line).name))
+    return names
 
 
 # --- resolution ----------------------------------------------------------------

@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -188,6 +189,9 @@ def ingest_deps(
         try:
             files = deps.fetch_requirements(session, asset, work / "requirements")
             packages = deps.resolve(asset, files, work / "pip-report.json")
+            if asset.direct_requirements:
+                direct = deps.direct_names(session, asset, work / "direct")
+                packages = [replace(p, direct=p.name in direct) for p in packages]
             matches = deps.query_osv(session, packages)
             wanted = {osv_id: modified for vulns in matches.values() for osv_id, modified in vulns.items()}
             fetched = deps.fetch_vulnerabilities(con, session, wanted, loaded_at)

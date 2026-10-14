@@ -1,0 +1,4 @@
+# Only the linter, at the version in requirements-dev.txt:
+#   uv pip compile requirements-lint.in --universal --python-version 3.11 --generate-hashes -o requirements-lint.txt
+-c requirements-dev.txt
+ruff

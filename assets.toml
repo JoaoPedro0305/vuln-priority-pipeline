@@ -13,6 +13,9 @@
 # alerts = false stops GitHub issues for this asset (they are opened when one of
 # its dependencies has a flaw CISA lists as exploited, or an SSVC "act").
 #
+# direct_requirements names the files that list only direct dependencies, when
+# `requirements` is a lock file that lists every package.
+#
 # trust_build_scripts = true lets pip run the build script of packages published
 # only as source code (to learn their dependencies). Only for repositories you
 # control; the resolution is then for the Python and OS running the scan.
@@ -39,7 +42,8 @@ mission_impact = "low"
 name = "vuln-priority-pipeline"
 repo = "JoaoPedro0305/vuln-priority-pipeline"
 ref = "main"
-requirements = ["requirements-dev.txt"]
+requirements = ["requirements-dev.txt"]          # hash-pinned lock: exact versions
+direct_requirements = ["requirements-dev.in"]    # what the project asks for directly
 python = "3.13"
 trust_build_scripts = true   # dbt-core-experimental-parser is published as source only
 publicly_exposed = "no"   # runs in GitHub Actions; publishes a static page
