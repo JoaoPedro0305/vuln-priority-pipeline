@@ -1,6 +1,7 @@
 """The dbt project end to end: a small warehouse loaded with the real loaders,
 then `dbt build` (models, data tests and unit tests) on it."""
 
+import json
 from datetime import date
 from decimal import Decimal
 
@@ -175,3 +176,19 @@ def test_invalid_organisation_variable_fails_the_build(warehouse, tmp_path):
 def test_top_before_transform_says_what_to_do(warehouse, capsys):
     assert main(["--warehouse", str(warehouse), "top"]) == 1
     assert "Run: vulnprio transform" in capsys.readouterr().out
+
+
+def test_export_writes_the_dashboard_data(warehouse, tmp_path):
+    run_dbt("build", warehouse=warehouse, target_dir=tmp_path / "dbt")
+    out = tmp_path / "site-data"
+
+    assert main(["--warehouse", str(warehouse), "export", "--out", str(out)]) == 0
+
+    status = json.loads((out / "status.json").read_text(encoding="utf-8"))
+    assert status["cves"] == 2
+    assert status["kev_version"] == "2026.01.15"
+    priorities = json.loads((out / "priorities.json").read_text(encoding="utf-8"))
+    assert [p["cve_id"] for p in priorities] == ["CVE-2024-0001", "CVE-2024-0003"]
+    assert priorities[0]["cvss_score"] == 9.8  # decimals become plain numbers
+    # No EPSS history in this warehouse, so the backtest is empty, not an error.
+    assert json.loads((out / "backtest_coverage.json").read_text(encoding="utf-8")) == []
