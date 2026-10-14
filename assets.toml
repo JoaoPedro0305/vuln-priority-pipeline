@@ -10,6 +10,9 @@
 #   publicly_exposed  "yes" if the system can be reached from the internet
 #   mission_impact    "low", "medium" or "high": how much depends on it
 #
+# alerts = false stops GitHub issues for this asset (they are opened when one of
+# its dependencies has a flaw CISA lists as exploited, or an SSVC "act").
+#
 # trust_build_scripts = true lets pip run the build script of packages published
 # only as source code (to learn their dependencies). Only for repositories you
 # control; the resolution is then for the Python and OS running the scan.
@@ -51,3 +54,4 @@ requirements = ["legacy-dependencies.txt"]
 python = "3.13"
 publicly_exposed = "yes"
 mission_impact = "high"
+alerts = false   # an example, not a system anyone runs

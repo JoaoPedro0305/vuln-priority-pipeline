@@ -73,6 +73,7 @@ class Asset:
     publicly_exposed: str
     mission_impact: str
     trust_build_scripts: bool = False
+    alerts: bool = True  # open a GitHub issue for exploited flaws (see vulnprio.issues)
     repo: str | None = None  # "owner/name" on GitHub
     ref: str | None = None
     path: Path | None = None  # a local folder instead
@@ -111,8 +112,9 @@ def load_assets(config_path: Path) -> list[Asset]:
             raise DepsError(f'{where} ({name}): mission_impact must be "low", "medium" or "high"')
 
         trust = entry.get("trust_build_scripts", False)
-        if not isinstance(trust, bool):
-            raise DepsError(f"{where} ({name}): trust_build_scripts must be true or false")
+        alerts = entry.get("alerts", True)
+        if not isinstance(trust, bool) or not isinstance(alerts, bool):
+            raise DepsError(f"{where} ({name}): trust_build_scripts and alerts must be true or false")
         repo = entry.get("repo")
         ref = entry.get("ref", "main")
         if repo and not (REPO.fullmatch(repo) and REF.fullmatch(ref) and ".." not in ref):
@@ -125,6 +127,7 @@ def load_assets(config_path: Path) -> list[Asset]:
                 publicly_exposed=exposed,
                 mission_impact=mission,
                 trust_build_scripts=trust,
+                alerts=alerts,
                 repo=repo,
                 ref=ref if repo else None,
                 path=None if repo else (config_path.parent / entry["path"]),
@@ -377,7 +380,11 @@ def load_asset(
     with transaction(con):
         con.execute("DELETE FROM raw.assets WHERE asset = ?", [asset.name])
         con.execute(
-            "INSERT INTO raw.assets VALUES (?, ?, ?, ?, ?, ?, ?)",
+            """
+            INSERT INTO raw.assets
+                (asset, location, requirements, python, publicly_exposed, mission_impact, alerts, loaded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
             [
                 asset.name,
                 asset.location,
@@ -385,6 +392,7 @@ def load_asset(
                 asset.python,
                 asset.publicly_exposed,
                 asset.mission_impact,
+                asset.alerts,
                 loaded_at,
             ],
         )
