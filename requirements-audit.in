@@ -1,0 +1,4 @@
+# Only the dependency auditor, at the version in requirements-dev.txt:
+#   uv pip compile requirements-audit.in --universal --python-version 3.11 --generate-hashes -o requirements-audit.txt
+-c requirements-dev.txt
+pip-audit
