@@ -49,3 +49,46 @@ sources:
                       - Modified
                       - Deferred
                       - Rejected
+
+      # Dependency scans (vulnprio ingest deps) run when assets change, not
+      # necessarily daily, so they have no freshness threshold.
+      - name: assets
+        description: Systems listed in assets.toml, replaced on each dependency scan.
+        config:
+          freshness: null
+        columns:
+          - name: asset
+            data_tests: [unique, not_null]
+          - name: publicly_exposed
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values: ["yes", "no"]
+          - name: mission_impact
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values: [low, medium, high]
+
+      - name: asset_packages
+        config:
+          freshness: null
+        data_tests:
+          - unique_combination:
+              arguments:
+                columns: [asset, package]
+
+      - name: asset_vulns
+        config:
+          freshness: null
+        data_tests:
+          - unique_combination:
+              arguments:
+                columns: [asset, package, vuln_key]
+
+      - name: osv_vulns
+        config:
+          freshness: null
+        columns:
+          - name: osv_id
+            data_tests: [unique, not_null]

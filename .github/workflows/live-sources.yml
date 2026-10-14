@@ -1,11 +1,12 @@
 name: live sources
 
 # The tests use fake responses. This runs the real ingestion against CISA,
-# FIRST and NVD, so a change in their formats shows up here within a week.
+# FIRST, NVD, GitHub and OSV.dev, so a change in their formats shows up here
+# within a week.
 on:
   push:
     branches: [main]
-    paths: ["src/**", "requirements.txt"]
+    paths: ["src/**", "requirements.txt", "assets.toml"]
   schedule:
     - cron: "40 14 * * 3" # Wednesdays
   workflow_dispatch:
@@ -42,6 +43,10 @@ jobs:
         run: |
           vulnprio ingest nvd --years 2002
           vulnprio ingest nvd --since "$(date -u -d '2 days ago' +%F)"
+
+      # GitHub raw files, pip resolution and OSV.dev, for every asset in assets.toml.
+      - name: Scan the assets' dependencies
+        run: vulnprio ingest deps
 
       # One day of each EPSS file format, oldest first.
       - name: Ingest historical EPSS formats

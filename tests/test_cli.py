@@ -24,6 +24,7 @@ def serve_nvd_feeds():
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "LANDING_DIR", tmp_path / "landing")
+    monkeypatch.setattr(config, "ASSETS_PATH", tmp_path / "no-assets.toml")  # deps scan skipped
     gz = epss_file(tmp_path / "fixture.csv.gz", epss_rows(25_000))
     return tmp_path / "warehouse.duckdb", gz.read_bytes()
 
@@ -100,3 +101,8 @@ def test_status_on_an_empty_warehouse(setup, capsys):
     warehouse, _ = setup
     assert main(["--warehouse", str(warehouse), "status"]) == 0
     assert "Nothing loaded yet" in capsys.readouterr().out
+
+
+def test_explicit_deps_scan_without_assets_file_fails(setup):
+    warehouse, _ = setup
+    assert main(["--warehouse", str(warehouse), "ingest", "deps"]) == 1

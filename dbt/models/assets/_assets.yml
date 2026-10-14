@@ -1,0 +1,129 @@
+version: 2
+
+models:
+  - name: asset_findings
+    description: >
+      Every known vulnerability in the dependencies of every asset, with CISA's SSVC decision and
+      BOD 26-04 deadline for that asset's exposure and mission impact, ranked like cve_priorities.
+    config:
+      contract:
+        enforced: true
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [asset, package, vuln_id]
+    columns:
+      - name: priority_rank
+        data_type: bigint
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: asset
+        data_type: varchar
+        constraints: [{type: not_null}]
+      - name: package
+        data_type: varchar
+        constraints: [{type: not_null}]
+      - name: version
+        data_type: varchar
+      - name: is_direct
+        description: Listed in the asset's requirement files; false when pulled in by another package.
+        data_type: boolean
+      - name: fixed_in
+        description: First version that fixes this flaw; NULL when no fix is released.
+        data_type: varchar
+      - name: vuln_id
+        description: The CVE id, or the smallest advisory id (GHSA, PYSEC) for flaws without one.
+        data_type: varchar
+      - name: cve_id
+        data_type: varchar
+      - name: osv_ids
+        description: Every OSV advisory describing this flaw.
+        data_type: varchar[]
+      - name: summary
+        data_type: varchar
+      - name: ssvc_decision
+        data_type: varchar
+        constraints: [{type: not_null}]
+      - name: remediation
+        data_type: varchar
+        constraints: [{type: not_null}]
+      - name: remediation_days
+        data_type: integer
+      - name: priority_reason
+        data_type: varchar
+      - name: exploitation
+        data_type: varchar
+      - name: automatable
+        data_type: varchar
+      - name: technical_impact
+        data_type: varchar
+      - name: in_kev
+        data_type: boolean
+      - name: epss
+        data_type: double
+      - name: cvss_score
+        data_type: decimal(3,1)
+      - name: publicly_exposed
+        data_type: varchar
+      - name: mission_impact
+        data_type: varchar
+
+  - name: asset_upgrades
+    description: One line per vulnerable package and asset, with the version that fixes all its flaws.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [asset, package]
+
+  - name: asset_summary
+    description: Per asset, packages scanned, vulnerable packages, findings and the shortest deadline.
+    columns:
+      - name: asset
+        data_tests: [unique, not_null]
+
+unit_tests:
+  - name: findings_are_decided_per_asset
+    description: >
+      The same CVE gets a different decision and deadline on an exposed, high-impact asset and on
+      an internal, low-impact one; a flaw without a CVE gets its inputs from its OSV CVSS vector.
+    model: asset_findings
+    given:
+      - input: ref('stg_assets')
+        rows:
+          - {asset: web, publicly_exposed: "yes", mission_impact: high}
+          - {asset: batch, publicly_exposed: "no", mission_impact: low}
+      - input: ref('stg_asset_packages')
+        rows:
+          - {asset: web, package: lib, version: "1.0", is_direct: true}
+          - {asset: batch, package: lib, version: "1.0", is_direct: false}
+          - {asset: web, package: other, version: "2.0", is_direct: true}
+      - input: ref('stg_asset_vulns')
+        rows:
+          - {asset: web, package: lib, version: "1.0", vuln_key: CVE-2024-0001, fixed_in: "1.1"}
+          - {asset: batch, package: lib, version: "1.0", vuln_key: CVE-2024-0001, fixed_in: "1.1"}
+          - {asset: web, package: other, version: "2.0", vuln_key: GHSA-aaaa-bbbb-cccc, fixed_in: null}
+      - input: ref('stg_osv_vulns')
+        rows:
+          - {vuln_key: GHSA-aaaa-bbbb-cccc, cvss3_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}
+      - input: ref('cve_priorities')
+        rows:
+          - {cve_id: CVE-2024-0001, in_kev: true, kev_ransomware: false, exploitation: active,
+             automatable: "yes", technical_impact: partial, epss: 0.4, cvss_score: 7.5}
+      - input: ref('ssvc_cisa_coordinator')
+        rows:
+          - {exploitation: active, automatable: "yes", technical_impact: partial, mission_impact: high, decision: act}
+          - {exploitation: active, automatable: "yes", technical_impact: partial, mission_impact: low, decision: attend}
+          - {exploitation: none, automatable: "yes", technical_impact: total, mission_impact: high, decision: attend}
+      - input: ref('bod_26_04_timelines')
+        rows:
+          - {in_kev: "yes", publicly_exposed: "yes", automatable: "yes", technical_impact: partial, remediation: 3 days}
+          - {in_kev: "yes", publicly_exposed: "no", automatable: "yes", technical_impact: partial, remediation: 14 days}
+          - {in_kev: "no", publicly_exposed: "yes", automatable: "yes", technical_impact: total, remediation: 3 days}
+    expect:
+      rows:
+        - {priority_rank: 1, asset: web, vuln_id: CVE-2024-0001, ssvc_decision: act, remediation: 3 days,
+           automatable: "yes", technical_impact: partial}
+        - {priority_rank: 2, asset: batch, vuln_id: CVE-2024-0001, ssvc_decision: attend, remediation: 14 days,
+           automatable: "yes", technical_impact: partial}
+        - {priority_rank: 3, asset: web, vuln_id: GHSA-aaaa-bbbb-cccc, ssvc_decision: attend, remediation: 3 days,
+           automatable: "yes", technical_impact: total}

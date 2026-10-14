@@ -61,6 +61,52 @@ CREATE TABLE IF NOT EXISTS raw.nvd_sync (
     finished_at   TIMESTAMP NOT NULL
 );
 
+-- Dependencies of the systems listed in assets.toml, and the OSV.dev
+-- vulnerabilities that affect them. Each asset is replaced on every scan.
+CREATE TABLE IF NOT EXISTS raw.assets (
+    asset            VARCHAR PRIMARY KEY,
+    location         VARCHAR NOT NULL,   -- github:owner/repo@ref or local:path
+    requirements     VARCHAR[] NOT NULL,
+    python           VARCHAR NOT NULL,
+    publicly_exposed VARCHAR NOT NULL,
+    mission_impact   VARCHAR NOT NULL,
+    loaded_at        TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS raw.asset_packages (
+    asset     VARCHAR NOT NULL,
+    package   VARCHAR NOT NULL,  -- canonical PyPI name
+    version   VARCHAR NOT NULL,
+    is_direct BOOLEAN NOT NULL,  -- listed in the requirement files, not pulled in by another package
+    upgrade_to VARCHAR,          -- lowest version fixing every known flaw that has a fix; NULL if none
+    loaded_at TIMESTAMP NOT NULL
+);
+
+-- One row per (asset, package, flaw); advisories describing the same flaw
+-- (GHSA, PYSEC, CVE aliases) are grouped under vuln_key.
+CREATE TABLE IF NOT EXISTS raw.asset_vulns (
+    asset     VARCHAR NOT NULL,
+    package   VARCHAR NOT NULL,
+    version   VARCHAR NOT NULL,
+    vuln_key  VARCHAR NOT NULL,  -- the CVE id, or the smallest advisory id
+    osv_ids   VARCHAR[] NOT NULL,
+    fixed_in  VARCHAR,           -- first version fixing every advisory; NULL if none yet
+    loaded_at TIMESTAMP NOT NULL
+);
+
+-- OSV vulnerability records, cached by their "modified" time.
+CREATE TABLE IF NOT EXISTS raw.osv_vulns (
+    osv_id    VARCHAR PRIMARY KEY,
+    vuln_key  VARCHAR NOT NULL,
+    aliases   VARCHAR[] NOT NULL,
+    summary   VARCHAR,
+    cvss3_vector VARCHAR,
+    cvss4_vector VARCHAR,
+    modified  VARCHAR NOT NULL,
+    affected  JSON,
+    loaded_at TIMESTAMP NOT NULL
+);
+
 -- One row per load: what came in, from where, and the file's fingerprint.
 CREATE TABLE IF NOT EXISTS raw.load_log (
     source    VARCHAR   NOT NULL,

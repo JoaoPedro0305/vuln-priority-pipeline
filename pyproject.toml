@@ -16,6 +16,7 @@ dependencies = [
     "dbt-duckdb>=1.9",
     "duckdb>=1.5",
     "matplotlib>=3.9",
+    "packaging>=24",
     "requests>=2.32",
 ]
 
