@@ -107,6 +107,10 @@ def ingest_nvd(
         reason = "requested" if full else "first sync" if last is None else f"last sync was {last:%Y-%m-%d}"
         log.info("NVD: full rebuild from the yearly feeds (%s)", reason)
         nvd.sync_feeds(con, session, all_years, landing_dir, record_sync=True)
+        # The feeds are generated once a day, early in UTC; CVEs published since
+        # (a KEV addition can be one of them) only exist in the API so far.
+        caught_up_from = nvd.watermark(con) - NVD_API_OVERLAP
+        nvd.sync_api(con, api_session, caught_up_from, now, landing_dir, api_key=config.nvd_api_key(), sleep=sleep)
         return "feeds"
 
     nvd.sync_api(con, api_session, last - NVD_API_OVERLAP, now, landing_dir, api_key=config.nvd_api_key(), sleep=sleep)
