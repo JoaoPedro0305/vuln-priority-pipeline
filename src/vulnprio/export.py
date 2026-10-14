@@ -117,3 +117,19 @@ def export(con: duckdb.DuckDBPyConnection, out_dir: Path) -> list[Path]:
         written.append(path)
     log.info("exported %d datasets to %s", len(written), out_dir)
     return written
+
+
+ALERTS_SQL = """
+    SELECT alert_key, asset, package, version, upgrade_to, fixed_in, vuln_id, cve_id, summary, in_kev,
+           kev_date_added, ssvc_decision, remediation, remediation_days, epss, priority_reason
+    FROM assets.asset_alerts
+    ORDER BY priority_rank
+"""
+
+
+def export_alerts(con: duckdb.DuckDBPyConnection, path: Path) -> list[dict]:
+    """Write the alerts that should have an open GitHub issue (read by vulnprio.issues)."""
+    rows = query(con, ALERTS_SQL)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+    return rows
