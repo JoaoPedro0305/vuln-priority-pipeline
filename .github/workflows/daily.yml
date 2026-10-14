@@ -1,0 +1,121 @@
+name: daily
+
+# Every day: bring the warehouse up to date, rebuild and test the models, and
+# publish the dashboard to GitHub Pages.
+on:
+  schedule:
+    - cron: "30 14 * * *" # after FIRST publishes the day's EPSS scores (~12:00 UTC)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never two runs on the same warehouse at once.
+concurrency:
+  group: daily
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: write # delete the previous warehouse cache once the new one is saved
+    outputs:
+      ingest: ${{ steps.ingest.outcome }}
+    env:
+      # Optional (raises the NVD API rate limit); empty when the secret is not set.
+      NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install
+        run: pip install -r requirements.txt -e .
+
+      # The warehouse (~2 GB: NVD and monthly EPSS history) lives in the Actions
+      # cache between runs. If the cache is gone, the next steps rebuild it:
+      # a full NVD load and the EPSS backfill, about 15 minutes.
+      - name: Restore the warehouse
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: data/warehouse.duckdb
+          key: warehouse-${{ github.run_id }}
+          restore-keys: warehouse-
+
+      # A failing source does not stop the run: the site is still rebuilt with
+      # the data that did load, and the last job turns the run red.
+      - name: Ingest
+        id: ingest
+        continue-on-error: true
+        run: |
+          status=0
+          vulnprio ingest all || status=1
+          vulnprio ingest epss --monthly-since 2021-12-01 || status=1
+          vulnprio status
+          exit $status
+
+      - name: Save the warehouse
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: data/warehouse.duckdb
+          key: warehouse-${{ github.run_id }}
+
+      - name: Delete older warehouse caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh cache list --repo "$GITHUB_REPOSITORY" --key warehouse- --json key --jq '.[].key' \
+            | grep -vx "warehouse-${GITHUB_RUN_ID}" \
+            | xargs -r -n1 gh cache delete --repo "$GITHUB_REPOSITORY"
+
+      - name: Transform (dbt build)
+        run: vulnprio transform
+
+      - name: Export the dashboard data
+        run: vulnprio export --out site/data
+
+      - name: dbt documentation (lineage and column docs)
+        run: |
+          dbt docs generate --static --project-dir dbt --profiles-dir dbt --target-path "$RUNNER_TEMP/dbt-docs"
+          mkdir -p site/dbt
+          cp "$RUNNER_TEMP/dbt-docs/static_index.html" site/dbt/index.html
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write # publish to GitHub Pages
+      id-token: write # prove the deployment comes from this workflow
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        id: deployment
+
+  # The site is published even when a source failed; this makes the run red so
+  # the failure is not missed.
+  ingestion-status:
+    needs: [build, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check ingestion
+        env:
+          INGEST: ${{ needs.build.outputs.ingest }}
+        run: |
+          echo "ingestion: $INGEST"
+          test "$INGEST" = "success"
