@@ -7,5 +7,6 @@ select
     python,
     publicly_exposed,
     mission_impact,
+    alerts,
     loaded_at as scanned_at
 from {{ source('raw', 'assets') }}

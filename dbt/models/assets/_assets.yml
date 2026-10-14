@@ -75,6 +75,14 @@ models:
           arguments:
             columns: [asset, package]
 
+  - name: asset_alerts
+    description: >
+      Findings that open a GitHub issue: on assets with alerts on, flaws in CISA KEV or with an
+      SSVC "act" decision for that asset. alert_key identifies the issue across runs.
+    columns:
+      - name: alert_key
+        data_tests: [unique, not_null]
+
   - name: asset_summary
     description: Per asset, packages scanned, vulnerable packages, findings and the shortest deadline.
     columns:
@@ -127,3 +135,28 @@ unit_tests:
            automatable: "yes", technical_impact: partial}
         - {priority_rank: 3, asset: web, vuln_id: GHSA-aaaa-bbbb-cccc, ssvc_decision: attend, remediation: 3 days,
            automatable: "yes", technical_impact: total}
+
+  - name: alerts_only_for_exploited_flaws_on_enabled_assets
+    model: asset_alerts
+    given:
+      - input: ref('asset_findings')
+        rows:
+          - {asset: api, package: lib, version: "1.0", vuln_id: CVE-1, cve_id: CVE-1, in_kev: true, ssvc_decision: attend, priority_rank: 1}
+          - {asset: api, package: lib, version: "1.0", vuln_id: CVE-2, cve_id: CVE-2, in_kev: false, ssvc_decision: act, priority_rank: 2}
+          - {asset: api, package: lib, version: "1.0", vuln_id: CVE-3, cve_id: CVE-3, in_kev: false, ssvc_decision: attend, priority_rank: 3}
+          - {asset: example, package: lib, version: "1.0", vuln_id: CVE-1, cve_id: CVE-1, in_kev: true, ssvc_decision: act, priority_rank: 4}
+      - input: ref('stg_assets')
+        rows:
+          - {asset: api, alerts: true}
+          - {asset: example, alerts: false}
+      - input: ref('stg_asset_packages')
+        rows:
+          - {asset: api, package: lib, version: "1.0", upgrade_to: "1.2"}
+          - {asset: example, package: lib, version: "1.0", upgrade_to: "1.2"}
+      - input: ref('cves')
+        rows:
+          - {cve_id: CVE-1, kev_date_added: 2026-10-01}
+    expect:
+      rows:
+        - {alert_key: "api|lib|CVE-1", upgrade_to: "1.2", kev_date_added: 2026-10-01}
+        - {alert_key: "api|lib|CVE-2", upgrade_to: "1.2", kev_date_added: null}
