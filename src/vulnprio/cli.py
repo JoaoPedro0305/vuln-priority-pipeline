@@ -73,6 +73,9 @@ def build_parser() -> argparse.ArgumentParser:
     report_cmd = commands.add_parser("report", help="print the backtest results and draw its charts")
     report_cmd.add_argument("--out", type=Path, default=Path("docs/img"), help="folder for the charts")
 
+    alerts_cmd = commands.add_parser("alerts", help="list the findings that warrant a GitHub issue")
+    alerts_cmd.add_argument("--out", type=Path, help="also write them as JSON (input of python -m vulnprio.issues)")
+
     export_cmd = commands.add_parser("export", help="write the dashboard's JSON files")
     export_cmd.add_argument("--out", type=Path, default=Path("site/data"), help="folder for the JSON files")
 
@@ -196,6 +199,20 @@ def show_findings(con: duckdb.DuckDBPyConnection, asset_filter: str | None, deta
     return 0
 
 
+def show_alerts(con: duckdb.DuckDBPyConnection, out: Path | None) -> int:
+    try:
+        rows = export.export_alerts(con, out) if out else export.query(con, export.ALERTS_SQL)
+    except duckdb.CatalogException:
+        print("No alerts table yet. Run: vulnprio ingest deps, then vulnprio transform")
+        return 1
+    if not rows:
+        print("No alerts: no scanned dependency has a flaw in KEV or an SSVC act decision.")
+    for row in rows:
+        reason = "in KEV" if row["in_kev"] else "SSVC act"
+        print(f"{row['asset']}: {row['package']} {row['version']}  {row['vuln_id']}  ({reason}, {row['remediation']})")
+    return 0
+
+
 def show_report(con: duckdb.DuckDBPyConnection, out: Path) -> int:
     try:
         table = report.coverage_table(con)
@@ -292,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
             return show_report(con, args.out)
         if args.command == "findings":
             return show_findings(con, args.asset, args.details)
+        if args.command == "alerts":
+            return show_alerts(con, args.out)
         if args.command == "export":
             export.export(con, args.out)
             return 0

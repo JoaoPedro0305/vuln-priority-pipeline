@@ -47,6 +47,7 @@ def test_load_assets(tmp_path):
     assert api.location == "github:acme/api@main"
     assert api.python == "3.13"  # default
     assert api.trust_build_scripts is False
+    assert api.alerts is True  # default
     assert batch.path == tmp_path / "batch"
     assert batch.requirements == ("reqs/base.txt",)
     assert (batch.publicly_exposed, batch.mission_impact) == ("no", "low")
@@ -377,6 +378,13 @@ def test_findings_end_to_end(tmp_path, legacy, capsys):
     assert "legacy: requests 2.19.0 -> 2.32.4" in out
     assert "fixes 2 vulnerabilities; act, within 3 days; worst: CVE-2024-0001" in out
     assert "exploited in the wild (KEV)" in out
+
+    # The KEV flaw on an asset with alerts on (the default) becomes one alert.
+    alerts_file = tmp_path / "alerts.json"
+    assert main(["--warehouse", str(warehouse), "alerts", "--out", str(alerts_file)]) == 0
+    alerts = json.loads(alerts_file.read_text(encoding="utf-8"))
+    assert [a["alert_key"] for a in alerts] == ["legacy|requests|CVE-2024-0001"]
+    assert alerts[0]["upgrade_to"] == "2.32.4" and alerts[0]["in_kev"] is True
 
 
 def test_findings_before_a_scan(tmp_path, capsys):

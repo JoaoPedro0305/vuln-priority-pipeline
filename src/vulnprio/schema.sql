@@ -70,8 +70,12 @@ CREATE TABLE IF NOT EXISTS raw.assets (
     python           VARCHAR NOT NULL,
     publicly_exposed VARCHAR NOT NULL,
     mission_impact   VARCHAR NOT NULL,
-    loaded_at        TIMESTAMP NOT NULL
+    loaded_at        TIMESTAMP NOT NULL,
+    alerts           BOOLEAN NOT NULL DEFAULT true  -- open GitHub issues for exploited flaws
 );
+-- Migrations: warehouses created before a column existed (the daily run keeps
+-- its warehouse in the Actions cache) get the column here.
+ALTER TABLE raw.assets ADD COLUMN IF NOT EXISTS alerts BOOLEAN DEFAULT true;
 
 CREATE TABLE IF NOT EXISTS raw.asset_packages (
     asset     VARCHAR NOT NULL,

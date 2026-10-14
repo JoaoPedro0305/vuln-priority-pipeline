@@ -45,7 +45,7 @@ Built in stages, one pull request each:
 - [x] **5. Backtest** of patching strategies on 57 months of point-in-time EPSS and KEV
 - [x] **6. Dependencies of real systems**: resolved with pip, matched through OSV.dev, decided per system
 - [x] **7. Daily run** in GitHub Actions and a **public dashboard** on GitHub Pages
-- [ ] 8. Automatic issue when a dependency enters KEV
+- [x] **8. Alerts**: a GitHub issue opens itself when a dependency has an exploited flaw, and closes when it is fixed
 - [ ] 9. OpenSSF Scorecard and v1.0 release
 
 ## How it works (so far)
@@ -352,6 +352,21 @@ what findings look like.
    within 3 days on an internet-facing system and *attend* within 14 days on an internal job (a
    dbt unit test checks exactly that). Flaws without a CVE are judged from their OSV CVSS vector.
 
+**Alerts.** When a dependency of an asset has a flaw CISA lists as exploited (KEV), or one whose
+SSVC decision for that asset is *act*, the daily run opens a GitHub issue labelled `kev-alert`
+with the decision, the deadline and the version to upgrade to. The issue is updated when the facts
+change and **closes itself** when the flaw no longer appears in the scan. Some details:
+
+- Issues are matched to alerts by a hidden key in their body, so each flaw gets one issue across runs.
+- Alerts come from `assets.asset_alerts`, which is only built when every dbt test passed: an issue
+  is never opened, or closed, from data that failed its checks. `alerts = false` turns them off for
+  an asset (the example app).
+- Advisory text is untrusted: it goes into the issue inside code spans, with `@` neutralised, so it
+  cannot add links, break the table or notify GitHub users.
+- The job that can write issues is separate from the one that builds the data, holds only
+  `issues: write`, and installs nothing but `requests` (`python -m vulnprio.issues`).
+- Today no real repository has an alert, so there is no open issue.
+
 **Why not just Dependabot alerts?** They cover one repository at a time and sort by CVSS severity,
 which the backtest shows barely predicts exploitation. This adds one view across systems, ranked by
 exploitation evidence and EPSS, with a deadline that depends on each system's exposure.
@@ -369,6 +384,7 @@ The `daily` workflow runs every day at 14:30 UTC, after FIRST publishes the day'
 4. **`dbt build`**: every model, data test and unit test. A failed test stops the publication.
 5. **Export** the marts the dashboard shows as small JSON files (~100 KB), generate the dbt docs, and
    **deploy** to GitHub Pages.
+6. **Sync the `kev-alert` issues** (see [alerts](#your-own-dependencies)) in a separate job.
 
 The warehouse does not grow without bound: EPSS adds ~385,000 rows a day, so daily scores older
 than 35 days are pruned except the first day of each month, which is all the backtest uses.
@@ -401,6 +417,8 @@ vulnprio report                  # backtest tables and charts (docs/img)
 vulnprio ingest deps             # dependencies of the systems in assets.toml
 vulnprio findings --details      # their vulnerabilities and upgrades (after transform)
 vulnprio export                  # the dashboard's JSON files (site/data)
+vulnprio alerts --out alerts.json
+GITHUB_TOKEN=... python -m vulnprio.issues --alerts alerts.json --repo owner/name --dry-run
 vulnprio status
 ```
 
@@ -414,7 +432,7 @@ Data goes to `data/` (ignored by git); `VULNPRIO_DATA_DIR` and `VULNPRIO_WAREHOU
 
 ## Quality and security of the repository itself
 
-- `ci`: ruff (lint, including bandit security rules), 121 tests on Python 3.11 to 3.13 (several build the dbt project), and
+- `ci`: ruff (lint, including bandit security rules), 137 tests on Python 3.11 to 3.13 (several build the dbt project), and
   `pip-audit` failing the build on any known vulnerability in the pinned dependencies.
 - `codeql`: static analysis of the Python code, the dashboard's JavaScript and the workflow files.
 - `live sources`: weekly run against the real CISA, FIRST, NVD, GitHub and OSV.dev endpoints, so a format change
