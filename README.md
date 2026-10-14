@@ -448,14 +448,19 @@ A project about vulnerabilities should not be an easy one to compromise.
   build the dbt project), and `pip-audit` failing the build on any known vulnerability in any lock.
 - `codeql`: static analysis of the Python code, the dashboard's JavaScript and the workflow files.
 - `scorecard`: [OpenSSF Scorecard](https://scorecard.dev) checks these practices every week and
-  publishes the result (badge at the top).
+  publishes the result (badge at the top). What it cannot give full marks for, and why: *Code-Review*
+  (one maintainer, and GitHub does not let an author approve their own pull request; every change
+  still goes through a pull request with all checks green), *Maintained* (the repository is younger
+  than 90 days), *Fuzzing* (it only detects fuzzers for other languages or OSS-Fuzz) and *Packaging*
+  (the package is released on GitHub, not on PyPI).
 - `live sources`: weekly run against the real CISA, FIRST, NVD, GitHub and OSV.dev endpoints, so a
   format change is caught even when the code does not change.
 - `release`: on a version tag, the package is built with a hash-pinned builder and published as a
   GitHub release with **signed SLSA build provenance**. To check that a file came from this
   repository and this workflow: `gh attestation verify vulnprio-1.0.0-py3-none-any.whl --repo
   JoaoPedro0305/vuln-priority-pipeline`. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
-- `main` accepts changes only through pull requests with every check green. Security problems can
+- `main` is protected by a repository ruleset: changes only through pull requests with every check
+  green, no force-push, no deletion, no bypass (administrators included). Security problems can
   be reported privately: see [SECURITY.md](SECURITY.md).
 
 ## License

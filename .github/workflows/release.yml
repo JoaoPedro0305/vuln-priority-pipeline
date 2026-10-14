@@ -40,7 +40,7 @@ jobs:
       # build use them instead of downloading the latest setuptools.
       - name: Build
         run: |
-          pip install -r requirements-release.txt
+          pip install --require-hashes -r requirements-release.txt
           SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) python -m build --no-isolation
           ls -l dist
 
