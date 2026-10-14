@@ -4,6 +4,7 @@
 [![codeql](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/codeql.yml/badge.svg)](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/codeql.yml)
 [![live sources](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/live-sources.yml/badge.svg)](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/live-sources.yml)
 [![daily](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/daily.yml/badge.svg)](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/daily.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/JoaoPedro0305/vuln-priority-pipeline/badge)](https://scorecard.dev/viewer/?uri=github.com/JoaoPedro0305/vuln-priority-pipeline)
 
 Daily pipeline that ranks CVEs by real-world exploitation risk (NVD + CISA KEV + EPSS),
 backtests patching strategies and publishes a live dashboard.
@@ -403,7 +404,8 @@ Requires Python 3.11+.
 ```bash
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements-dev.txt -e .
+pip install -r requirements-dev.txt   # every package pinned by hash
+pip install --no-deps -e .
 
 vulnprio ingest all              # KEV catalog, latest EPSS day, NVD (full first, then incremental)
 vulnprio ingest epss --date 2023-03-07
@@ -432,13 +434,25 @@ Data goes to `data/` (ignored by git); `VULNPRIO_DATA_DIR` and `VULNPRIO_WAREHOU
 
 ## Quality and security of the repository itself
 
-- `ci`: ruff (lint, including bandit security rules), 137 tests on Python 3.11 to 3.13 (several build the dbt project), and
-  `pip-audit` failing the build on any known vulnerability in the pinned dependencies.
+A project about vulnerabilities should not be an easy one to compromise.
+
+- **Dependencies pinned by hash.** `requirements*.txt` are locks generated from `requirements*.in`
+  with `uv pip compile --universal --generate-hashes`: every package, transitive ones included, with
+  the SHA-256 of each published file, for every platform and Python version supported. If a file on
+  PyPI changes, even with the same version number, the install fails. Each CI job installs only its
+  own lock (ruff alone for lint, pip-audit alone for the audit, `requests` alone for the issues job).
+- **GitHub Actions pinned by commit**, not by tag (a tag can be moved). Dependabot updates both.
+- **Least privilege.** Every workflow starts with a read-only token; write permissions (Pages,
+  issues, caches) are granted only to the job that needs them.
+- `ci`: ruff (lint, including bandit security rules), 140 tests on Python 3.11 to 3.13 (several
+  build the dbt project), and `pip-audit` failing the build on any known vulnerability in any lock.
 - `codeql`: static analysis of the Python code, the dashboard's JavaScript and the workflow files.
-- `live sources`: weekly run against the real CISA, FIRST, NVD, GitHub and OSV.dev endpoints, so a format change
-  is caught even when the code does not change.
-- Exact dependency pins and GitHub Actions pinned by commit hash, both updated by Dependabot.
-  Workflows run with a read-only token.
+- `scorecard`: [OpenSSF Scorecard](https://scorecard.dev) checks these practices every week and
+  publishes the result (badge at the top).
+- `live sources`: weekly run against the real CISA, FIRST, NVD, GitHub and OSV.dev endpoints, so a
+  format change is caught even when the code does not change.
+- `main` accepts changes only through pull requests with every check green. Security problems can
+  be reported privately: see [SECURITY.md](SECURITY.md).
 
 ## License
 
