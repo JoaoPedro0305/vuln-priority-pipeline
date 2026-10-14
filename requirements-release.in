@@ -1,0 +1,5 @@
+# The package builder and backend used by the release workflow (build --no-isolation,
+# so the backend is this hash-pinned one too):
+#   uv pip compile requirements-release.in --universal --python-version 3.11 --generate-hashes -o requirements-release.txt
+build==1.6.1
+setuptools==84.0.0

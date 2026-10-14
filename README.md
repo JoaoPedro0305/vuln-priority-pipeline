@@ -47,7 +47,7 @@ Built in stages, one pull request each:
 - [x] **6. Dependencies of real systems**: resolved with pip, matched through OSV.dev, decided per system
 - [x] **7. Daily run** in GitHub Actions and a **public dashboard** on GitHub Pages
 - [x] **8. Alerts**: a GitHub issue opens itself when a dependency has an exploited flaw, and closes when it is fixed
-- [ ] 9. OpenSSF Scorecard and v1.0 release
+- [x] **9. Supply chain**: hash-pinned dependencies, OpenSSF Scorecard, and a v1.0 release with signed build provenance
 
 ## How it works (so far)
 
@@ -451,6 +451,10 @@ A project about vulnerabilities should not be an easy one to compromise.
   publishes the result (badge at the top).
 - `live sources`: weekly run against the real CISA, FIRST, NVD, GitHub and OSV.dev endpoints, so a
   format change is caught even when the code does not change.
+- `release`: on a version tag, the package is built with a hash-pinned builder and published as a
+  GitHub release with **signed SLSA build provenance**. To check that a file came from this
+  repository and this workflow: `gh attestation verify vulnprio-1.0.0-py3-none-any.whl --repo
+  JoaoPedro0305/vuln-priority-pipeline`. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 - `main` accepts changes only through pull requests with every check green. Security problems can
   be reported privately: see [SECURITY.md](SECURITY.md).
 

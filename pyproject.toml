@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vulnprio"
-version = "0.1.0"
+version = "1.0.0"
 description = "Ranks CVEs by real-world exploitation risk (NVD + CISA KEV + EPSS)."
 readme = "README.md"
 license = "MIT"

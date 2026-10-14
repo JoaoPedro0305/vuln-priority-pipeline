@@ -27,3 +27,7 @@ dbt/.user.yml
 # Dashboard data and dbt docs (built by the daily workflow)
 site/data/
 site/dbt/
+
+# Package builds
+dist/
+build/
