@@ -76,4 +76,5 @@ jobs:
 
       - name: Audit dependencies
         run: |
-          pip-audit --strict -r requirements.txt -r requirements-dev.txt -r requirements-issues.txt             -r requirements-lint.txt -r requirements-audit.txt -r requirements-release.txt
+          pip-audit --strict -r requirements.txt -r requirements-dev.txt -r requirements-issues.txt \
+            -r requirements-lint.txt -r requirements-audit.txt -r requirements-release.txt
