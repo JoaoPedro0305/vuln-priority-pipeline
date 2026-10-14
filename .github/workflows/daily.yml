@@ -1,7 +1,8 @@
 name: daily
 
-# Every day: bring the warehouse up to date, rebuild and test the models, and
-# publish the dashboard to GitHub Pages.
+# Every day: bring the warehouse up to date, rebuild and test the models,
+# publish the dashboard to GitHub Pages, and keep one issue open per exploited
+# flaw in the dependencies of the assets in assets.toml.
 on:
   schedule:
     - cron: "30 14 * * *" # after FIRST publishes the day's EPSS scores (~12:00 UTC)
@@ -83,6 +84,17 @@ jobs:
       - name: Export the dashboard data
         run: vulnprio export --out site/data
 
+      # Only reached when every dbt test passed, so issues are never opened or
+      # closed from data that failed its checks.
+      - name: Alerts for the issues job
+        run: vulnprio alerts --out "$RUNNER_TEMP/alerts/alerts.json"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: alerts
+          path: ${{ runner.temp }}/alerts/alerts.json
+          retention-days: 7
+
       - name: dbt documentation (lineage and column docs)
         run: |
           dbt docs generate --static --project-dir dbt --profiles-dir dbt --target-path "$RUNNER_TEMP/dbt-docs"
@@ -106,10 +118,41 @@ jobs:
       - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
         id: deployment
 
+  # Opens, updates and closes the `kev-alert` issues. The only job that can write
+  # issues, and it installs nothing but `requests`.
+  issues:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install requests
+        run: pip install "$(grep '^requests==' requirements.txt)"
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: alerts
+          path: alerts
+
+      - name: Sync the kev-alert issues
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PYTHONPATH: src
+        run: python -m vulnprio.issues --alerts alerts/alerts.json --repo "$GITHUB_REPOSITORY"
+
   # The site is published even when a source failed; this makes the run red so
   # the failure is not missed.
   ingestion-status:
-    needs: [build, deploy]
+    needs: [build, deploy, issues]
     if: always()
     runs-on: ubuntu-latest
     steps:
