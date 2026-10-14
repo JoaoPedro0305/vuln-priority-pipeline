@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Everything is served from this site: no external scripts, fonts or trackers. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Vulnerability priorities</title>
+  <meta name="description" content="Which CVEs to patch first, ranked by evidence of exploitation and EPSS, and how that ranking would have done since 2022.">
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Which vulnerabilities to patch first</h1>
+      <p class="lede">
+        Every published CVE, ranked by what predicts exploitation: CISA's evidence that a flaw is
+        being exploited, then the daily EPSS probability. Rebuilt every day from
+        <a href="https://www.cisa.gov/known-exploited-vulnerabilities-catalog">CISA KEV</a>,
+        <a href="https://www.first.org/epss/">FIRST EPSS</a> and the
+        <a href="https://nvd.nist.gov/">NVD</a>.
+      </p>
+      <p class="meta" id="updated">Loading data…</p>
+    </header>
+
+    <section id="backtest" aria-labelledby="backtest-title">
+      <h2 id="backtest-title">Does the ranking work?</h2>
+      <p id="backtest-summary"></p>
+      <figure>
+        <div class="chart" id="coverage-chart" role="img"
+             aria-label="Share of next-month exploitation caught, by monthly patching budget, for each strategy"></div>
+        <figcaption>
+          Share of the CVEs added to CISA KEV in the following 30 days that each strategy had
+          ranked within the monthly budget, using only what was known on each decision date.
+          <span id="backtest-scope"></span>
+        </figcaption>
+      </figure>
+      <details>
+        <summary>The numbers, by budget and by period</summary>
+        <div class="table-wrap" id="coverage-table"></div>
+        <div class="table-wrap" id="period-table"></div>
+      </details>
+      <p class="note" id="reach-note"></p>
+    </section>
+
+    <section id="priorities" aria-labelledby="priorities-title">
+      <h2 id="priorities-title">Patch first</h2>
+      <p>
+        The top of the ranking today. Known exploitation comes first; the deadline is the one
+        CISA's directive BOD 26-04 sets for an internet-facing system.
+      </p>
+      <div class="switch" role="group" aria-label="Which CVEs to list">
+        <button type="button" data-list="priorities" aria-pressed="true">All</button>
+        <button type="button" data-list="not_yet_exploited" aria-pressed="false">Not yet in KEV</button>
+      </div>
+      <div class="table-wrap" id="priority-table"></div>
+    </section>
+
+    <section id="recent" aria-labelledby="recent-title">
+      <h2 id="recent-title">Recently added to KEV</h2>
+      <p id="recent-summary"></p>
+      <div class="table-wrap" id="recent-table"></div>
+    </section>
+
+    <section id="severity" aria-labelledby="severity-title">
+      <h2 id="severity-title">Who scores severity now</h2>
+      <p id="severity-summary"></p>
+      <figure>
+        <div class="chart" id="sources-chart" role="img"
+             aria-label="Share of each year's CVEs by who produced their CVSS v3 score"></div>
+        <figcaption>Source of each CVE's CVSS v3 score, by year of publication.</figcaption>
+      </figure>
+    </section>
+
+    <section id="assets" aria-labelledby="assets-title">
+      <h2 id="assets-title">Our own dependencies</h2>
+      <p>
+        The same ranking applied to the Python dependencies of real systems, transitive ones
+        included, matched against <a href="https://osv.dev">OSV.dev</a>. The last one is an
+        intentionally outdated example.
+      </p>
+      <div class="table-wrap" id="assets-table"></div>
+      <div id="upgrades"></div>
+    </section>
+
+    <footer>
+      <p>
+        Method, code and tests:
+        <a href="https://github.com/JoaoPedro0305/vuln-priority-pipeline">github.com/JoaoPedro0305/vuln-priority-pipeline</a>.
+        Data models and lineage: <a href="dbt/index.html">dbt documentation</a>.
+      </p>
+      <p>
+        KEV is published by CISA and EPSS by FIRST. This product uses data from the NVD API but is
+        not endorsed or certified by the NVD. Rankings are a starting point for patching decisions,
+        not a substitute for knowing your own systems.
+      </p>
+    </footer>
+  </main>
+  <div class="tooltip" id="tooltip" role="status" hidden></div>
+</body>
+</html>
