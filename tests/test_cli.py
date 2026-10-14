@@ -6,7 +6,7 @@ import duckdb
 import pytest
 import responses
 
-from tests.conftest import epss_file, epss_rows, kev_entry, kev_feed, nvd_cve, nvd_feed
+from tests.conftest import epss_file, epss_rows, kev_entry, kev_feed, nvd_cve, nvd_doc, nvd_feed
 from vulnprio import config
 from vulnprio.cli import main
 
@@ -15,10 +15,12 @@ ANY_YEAR = r"\d{4}"
 
 
 def serve_nvd_feeds():
-    """The same small feed for every year, so a first (full) NVD sync succeeds."""
+    """The same small feed for every year, so a first (full) NVD sync succeeds, and one
+    CVE published after the feeds were generated, which the API catch-up brings in."""
     gz, meta = nvd_feed([nvd_cve("CVE-2024-0001"), nvd_cve("CVE-2024-0002"), nvd_cve("CVE-2024-0003")])
     responses.get(re.compile(re.escape(config.NVD_META_URL).replace(r"\{year\}", ANY_YEAR)), body=meta)
     responses.get(re.compile(re.escape(config.NVD_FEED_URL).replace(r"\{year\}", ANY_YEAR)), body=gz)
+    responses.get(config.NVD_API_URL, body=nvd_doc([nvd_cve("CVE-2024-0004", "2024-03-01T00:00:00.000")]))
 
 
 @pytest.fixture
@@ -44,7 +46,7 @@ def test_ingest_all_then_status(setup, capsys):
     serve_nvd_feeds()
 
     assert main(["--warehouse", str(warehouse), "ingest", "all"]) == 0
-    assert counts(warehouse) == (2, 25_000, 3)
+    assert counts(warehouse) == (2, 25_000, 4)
     # Progress is logged (importing dbt must not silence the CLI's logging).
     assert "KEV catalog 2026.01.15 loaded: 2 CVEs" in capsys.readouterr().err
 
@@ -53,7 +55,7 @@ def test_ingest_all_then_status(setup, capsys):
     assert "2026.01.15" in out
     assert "25,000" in out
     assert "EPSS: 1 day(s)" in out
-    assert "NVD:  3 CVEs, changes covered until 2024-02-01 00:00 UTC" in out
+    assert "NVD:  4 CVEs, changes covered until" in out
 
 
 @responses.activate
@@ -64,7 +66,7 @@ def test_one_source_failing_does_not_stop_the_other(setup):
     serve_nvd_feeds()
 
     assert main(["--warehouse", str(warehouse), "ingest", "all"]) == 1
-    assert counts(warehouse) == (0, 25_000, 3)
+    assert counts(warehouse) == (0, 25_000, 4)
 
 
 @responses.activate

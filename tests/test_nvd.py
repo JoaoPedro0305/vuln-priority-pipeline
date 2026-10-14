@@ -283,14 +283,19 @@ def test_ingest_nvd_picks_the_mode_from_the_last_sync(con, tmp_path):
     def run(**kwargs):
         return ingest_nvd(con, make_session(), landing_dir=tmp_path, sleep=no_sleep, **kwargs)
 
-    assert run(now=now) == "feeds"  # first sync
-    watermark = datetime(2003, 1, 10, 8, 0)
-    assert nvd.watermark(con) == watermark
+    def last_api_window():
+        query = parse_qs(urlparse(requests_to(config.NVD_API_URL)[-1].request.url).query)
+        return query["lastModStartDate"][0], query["lastModEndDate"][0]
+
+    # First sync: the feeds (latest change in them: 08:00), then the API from
+    # there (minus a day of overlap) to now, for CVEs published after the feeds.
+    assert run(now=now) == "feeds"
+    assert last_api_window() == ("2003-01-09T08:00:00.000Z", "2003-01-10T12:00:00.000Z")
+    assert con.execute("SELECT count(*) FROM raw.nvd").fetchone()[0] == 3  # 2 from feeds, 1 from the API
+    assert nvd.watermark(con) == now
 
     assert run(now=now + timedelta(days=1)) == "api"  # recent sync: only the changes
-    query = parse_qs(urlparse(requests_to(config.NVD_API_URL)[-1].request.url).query)
-    assert query["lastModStartDate"] == ["2003-01-09T08:00:00.000Z"]  # one day of overlap
-    assert con.execute("SELECT count(*) FROM raw.nvd").fetchone()[0] == 3
+    assert last_api_window() == ("2003-01-09T12:00:00.000Z", "2003-01-11T12:00:00.000Z")
 
     assert run(now=now + timedelta(days=100)) == "feeds"  # too long ago: rebuild
     assert run(now=now + timedelta(days=101), full=True) == "feeds"
