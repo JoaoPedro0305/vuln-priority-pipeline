@@ -3,9 +3,14 @@
 [![ci](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/ci.yml)
 [![codeql](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/codeql.yml/badge.svg)](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/codeql.yml)
 [![live sources](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/live-sources.yml/badge.svg)](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/live-sources.yml)
+[![daily](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/daily.yml/badge.svg)](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/daily.yml)
 
 Daily pipeline that ranks CVEs by real-world exploitation risk (NVD + CISA KEV + EPSS),
 backtests patching strategies and publishes a live dashboard.
+
+**Dashboard: [joaopedro0305.github.io/vuln-priority-pipeline](https://joaopedro0305.github.io/vuln-priority-pipeline/)**,
+rebuilt every day, with the [dbt documentation](https://joaopedro0305.github.io/vuln-priority-pipeline/dbt/)
+of every model and column.
 
 ## The question
 
@@ -39,7 +44,7 @@ Built in stages, one pull request each:
 - [x] **4. Priority ranking** from CISA's SSVC decision table and the BOD 26-04 remediation timelines
 - [x] **5. Backtest** of patching strategies on 57 months of point-in-time EPSS and KEV
 - [x] **6. Dependencies of real systems**: resolved with pip, matched through OSV.dev, decided per system
-- [ ] 7. Daily run and public dashboard on GitHub Pages
+- [x] **7. Daily run** in GitHub Actions and a **public dashboard** on GitHub Pages
 - [ ] 8. Automatic issue when a dependency enters KEV
 - [ ] 9. OpenSSF Scorecard and v1.0 release
 
@@ -351,6 +356,30 @@ what findings look like.
 which the backtest shows barely predicts exploitation. This adds one view across systems, ranked by
 exploitation evidence and EPSS, with a deadline that depends on each system's exposure.
 
+## Daily run and dashboard
+
+The `daily` workflow runs every day at 14:30 UTC, after FIRST publishes the day's EPSS scores:
+
+1. **Restore the warehouse** from the Actions cache. It holds what is expensive to fetch again
+   (all of NVD, the monthly EPSS history). If the cache has expired, the same commands rebuild it:
+   with no watermark the NVD load is a full one, and the EPSS backfill fetches only missing months.
+2. **Ingest** KEV, the day's EPSS, NVD changes and the dependency scan. A failing source does not
+   stop the run; the site is rebuilt with what did load, and a final job turns the run red.
+3. **Save the warehouse** under a new cache key and delete the previous one.
+4. **`dbt build`**: every model, data test and unit test. A failed test stops the publication.
+5. **Export** the marts the dashboard shows as small JSON files (~100 KB), generate the dbt docs, and
+   **deploy** to GitHub Pages.
+
+The warehouse does not grow without bound: EPSS adds ~385,000 rows a day, so daily scores older
+than 35 days are pruned except the first day of each month, which is all the backtest uses.
+
+**The dashboard** is three static files (`site/`) and the exported JSON. No framework, no external
+script, font or tracker: a Content Security Policy allows only the site's own files. Text from the
+sources (product names, summaries) reaches the page only through `textContent`, never as HTML. The
+charts are drawn as SVG at the width they are shown at, follow the system's light or dark mode,
+and use a categorical palette checked for colour-blind readers in both; every chart has its numbers
+in a table too.
+
 ## Run it
 
 Requires Python 3.11+.
@@ -371,6 +400,7 @@ vulnprio top --vendor apache --since 2025-01-01
 vulnprio report                  # backtest tables and charts (docs/img)
 vulnprio ingest deps             # dependencies of the systems in assets.toml
 vulnprio findings --details      # their vulnerabilities and upgrades (after transform)
+vulnprio export                  # the dashboard's JSON files (site/data)
 vulnprio status
 ```
 
@@ -384,9 +414,9 @@ Data goes to `data/` (ignored by git); `VULNPRIO_DATA_DIR` and `VULNPRIO_WAREHOU
 
 ## Quality and security of the repository itself
 
-- `ci`: ruff (lint, including bandit security rules), 119 tests on Python 3.11 to 3.13 (several build the dbt project), and
+- `ci`: ruff (lint, including bandit security rules), 121 tests on Python 3.11 to 3.13 (several build the dbt project), and
   `pip-audit` failing the build on any known vulnerability in the pinned dependencies.
-- `codeql`: static analysis of the Python code and of the workflow files.
+- `codeql`: static analysis of the Python code, the dashboard's JavaScript and the workflow files.
 - `live sources`: weekly run against the real CISA, FIRST, NVD, GitHub and OSV.dev endpoints, so a format change
   is caught even when the code does not change.
 - Exact dependency pins and GitHub Actions pinned by commit hash, both updated by Dependabot.

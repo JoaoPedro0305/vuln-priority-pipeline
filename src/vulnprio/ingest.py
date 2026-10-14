@@ -62,7 +62,9 @@ def ingest_epss(
         landing_dir / "epss" / f"epss_scores-{name}.csv.gz",
         not_found=(403, 404),  # the bucket answers 403 for days not published
     )
-    return epss.load(con, downloaded, utc_now(), expected_date=day)
+    score_date = epss.load(con, downloaded, utc_now(), expected_date=day)
+    epss.prune(con)
+    return score_date
 
 
 def ingest_nvd(

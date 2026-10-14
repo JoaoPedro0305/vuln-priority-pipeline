@@ -167,3 +167,25 @@ def load(
 
     log.info("EPSS %s loaded: %d CVEs (model %s)", score_date, rows, header.model_version or "not stated")
     return score_date
+
+
+def prune(con: duckdb.DuckDBPyConnection, keep_days: int = 35) -> int:
+    """Delete daily scores older than `keep_days`, except the first loaded day of each month.
+
+    Every day adds ~385,000 rows. The backtest only needs one day per month, and
+    the dashboard only the latest, so older days are kept as monthly snapshots.
+    Returns the number of days removed.
+    """
+    removed = con.execute(
+        """
+        DELETE FROM raw.epss
+        WHERE score_date < (SELECT max(score_date) FROM raw.epss) - CAST(? AS INTEGER)
+            AND score_date NOT IN (SELECT min(score_date) FROM raw.epss GROUP BY date_trunc('month', score_date))
+        RETURNING score_date
+        """,
+        [keep_days],
+    ).fetchall()
+    days = len({d for (d,) in removed})
+    if days:
+        log.info("EPSS: pruned %d old day(s), keeping the first day of each month", days)
+    return days

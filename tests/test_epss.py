@@ -116,3 +116,16 @@ def test_too_few_rows_is_refused(con, tmp_path):
     path = epss_file(tmp_path / "e.csv.gz", epss_rows(10))
     with pytest.raises(epss.EpssError, match="only 10 rows"):
         epss.load(con, as_downloaded(path), LOADED_AT)
+
+
+def test_prune_keeps_recent_days_and_one_day_per_month(con, tmp_path):
+    days = ["2026-01-01", "2026-01-15", "2026-02-02", "2026-02-20", "2026-03-01", "2026-03-20"]
+    for d in days:
+        comment = f"#model_version:v2025.03.14,score_date:{d}T12:00:00Z"
+        load(con, epss_file(tmp_path / f"{d}.csv.gz", ROWS, comment=comment))
+
+    assert epss.prune(con, keep_days=35) == 1  # only 2026-01-15 goes
+
+    kept = [str(d) for (d,) in con.execute("SELECT DISTINCT score_date FROM raw.epss ORDER BY 1").fetchall()]
+    # Months keep their first day; the last 35 days (from 2026-02-13) are all kept.
+    assert kept == ["2026-01-01", "2026-02-02", "2026-02-20", "2026-03-01", "2026-03-20"]

@@ -1,4 +1,4 @@
-"""Command line: `vulnprio ingest`, `transform`, `top`, `report` and `status`."""
+"""Command line: `vulnprio ingest`, `transform`, `top`, `findings`, `report`, `export` and `status`."""
 
 import argparse
 import logging
@@ -8,7 +8,7 @@ from pathlib import Path
 import duckdb
 import requests
 
-from vulnprio import config, report
+from vulnprio import config, export, report
 from vulnprio.download import DownloadError, make_session
 from vulnprio.ingest import ingest_deps, ingest_epss, ingest_epss_history, ingest_kev, ingest_nvd
 from vulnprio.sources.deps import DepsError
@@ -72,6 +72,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     report_cmd = commands.add_parser("report", help="print the backtest results and draw its charts")
     report_cmd.add_argument("--out", type=Path, default=Path("docs/img"), help="folder for the charts")
+
+    export_cmd = commands.add_parser("export", help="write the dashboard's JSON files")
+    export_cmd.add_argument("--out", type=Path, default=Path("site/data"), help="folder for the JSON files")
 
     commands.add_parser("status", help="show what is loaded")
     return parser
@@ -289,6 +292,9 @@ def main(argv: list[str] | None = None) -> int:
             return show_report(con, args.out)
         if args.command == "findings":
             return show_findings(con, args.asset, args.details)
+        if args.command == "export":
+            export.export(con, args.out)
+            return 0
         return show_status(con)
     finally:
         con.close()
