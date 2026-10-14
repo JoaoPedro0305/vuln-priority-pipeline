@@ -2,6 +2,9 @@
 # Each one runs the full CI before it can be merged.
 version: 2
 updates:
+  # The requirements*.txt files are hash-pinned locks generated from the
+  # requirements*.in files by `uv pip compile`; Dependabot updates the .in pins
+  # and regenerates the locks with the command in each file's header.
   - package-ecosystem: pip
     directory: "/"
     schedule:

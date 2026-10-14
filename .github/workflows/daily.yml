@@ -40,7 +40,9 @@ jobs:
           cache-dependency-path: requirements.txt
 
       - name: Install
-        run: pip install -r requirements.txt -e .
+        run: |
+          pip install -r requirements.txt
+          pip install --no-deps -e .
 
       # The warehouse (~2 GB: NVD and monthly EPSS history) lives in the Actions
       # cache between runs. If the cache is gone, the next steps rebuild it:
@@ -136,7 +138,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install requests
-        run: pip install "$(grep '^requests==' requirements.txt)"
+        run: pip install -r requirements-issues.txt
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
