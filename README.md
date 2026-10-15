@@ -444,7 +444,7 @@ A project about vulnerabilities should not be an easy one to compromise.
 - **GitHub Actions pinned by commit**, not by tag (a tag can be moved). Dependabot updates both.
 - **Least privilege.** Every workflow starts with a read-only token; write permissions (Pages,
   issues, caches) are granted only to the job that needs them.
-- `ci`: ruff (lint, including bandit security rules), 140 tests on Python 3.11 to 3.13 (several
+- `ci`: ruff (lint, including bandit security rules), 140 tests on Python 3.11 to 3.13 (96% statement coverage, the build fails below 90%; several
   build the dbt project), and `pip-audit` failing the build on any known vulnerability in any lock.
 - `codeql`: static analysis of the Python code, the dashboard's JavaScript and the workflow files.
 - `scorecard`: [OpenSSF Scorecard](https://scorecard.dev) checks these practices every week and
@@ -458,7 +458,7 @@ A project about vulnerabilities should not be an easy one to compromise.
 - `release`: on a version tag, the package is built with a hash-pinned builder and published as a
   GitHub release with **signed SLSA build provenance**. To check that a file came from this
   repository and this workflow: `gh attestation verify vulnprio-1.0.0-py3-none-any.whl --repo
-  JoaoPedro0305/vuln-priority-pipeline`. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+  JoaoPedro0305/vuln-priority-pipeline`. Changes are listed in [CHANGELOG.md](CHANGELOG.md); how to contribute in [CONTRIBUTING.md](CONTRIBUTING.md).
 - `main` is protected by a repository ruleset: changes only through pull requests with every check
   green, no force-push, no deletion, no bypass (administrators included). Security problems can
   be reported privately: see [SECURITY.md](SECURITY.md).

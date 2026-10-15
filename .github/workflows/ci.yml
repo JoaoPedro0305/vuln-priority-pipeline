@@ -56,8 +56,11 @@ jobs:
           pip install --require-hashes -r requirements-dev.txt
           pip install --no-deps -e .
 
+      # Fails when coverage of src/vulnprio drops below 90% (pyproject.toml).
       - name: Test
-        run: pytest -q
+        run: |
+          coverage run -m pytest -q
+          coverage report
 
   audit:
     # Fails when a pinned dependency has a known vulnerability (PyPI advisory database / OSV).
