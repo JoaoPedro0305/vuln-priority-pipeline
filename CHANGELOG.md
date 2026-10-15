@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- CONTRIBUTING.md, with the test policy; test coverage measured in CI (96%, fails below 90%).
+- OpenSSF Best Practices passing badge; `main` protected by a repository ruleset; every
+  `pip install` requires hashes explicitly.
+- The dashboard export only writes what the site shows (the unused `backtest_by_year.json` and
+  several unused columns are gone).
+- Removed an unused field (the feeds' generation time) from the NVD feed metadata.
+- README rewritten: architecture, repository layout, command reference, configuration, limitations.
+
 ## 1.0.0 - 2026-10-14
 
 First release. The pipeline runs every day and publishes its results at
