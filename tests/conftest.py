@@ -134,11 +134,11 @@ def nvd_doc(cves: list[dict], total: int | None = None, start: int = 0) -> bytes
     ).encode("utf-8")
 
 
-def nvd_feed(cves: list[dict], modified: str = "2026-01-15T03:00:00-05:00") -> tuple[bytes, str]:
+def nvd_feed(cves: list[dict]) -> tuple[bytes, str]:
     """A gzipped yearly feed and its matching .meta text."""
     raw = nvd_doc(cves)
     meta = (
-        f"lastModifiedDate:{modified}\r\nsize:{len(raw)}\r\nzipSize:0\r\ngzSize:0\r\n"
+        f"lastModifiedDate:2026-01-15T03:00:00-05:00\r\nsize:{len(raw)}\r\nzipSize:0\r\ngzSize:0\r\n"
         f"sha256:{hashlib.sha256(raw).hexdigest().upper()}\r\n"
     )
     return gzip.compress(raw), meta

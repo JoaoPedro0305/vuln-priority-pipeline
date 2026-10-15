@@ -22,7 +22,7 @@ import shutil
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import duckdb
@@ -55,21 +55,19 @@ class NvdError(Exception):
 
 @dataclass(frozen=True)
 class FeedMeta:
-    last_modified: datetime  # UTC
     size: int  # uncompressed bytes
     sha256: str  # of the uncompressed JSON
 
 
 def parse_meta(text: str) -> FeedMeta:
-    """Parse a .meta file: "key:value" lines (lastModifiedDate, size, sha256...)."""
+    """Parse a .meta file: "key:value" lines (lastModifiedDate, size, sha256...).
+
+    Only the size and hash are kept, to verify the feed. (Its lastModifiedDate
+    says when NVD last regenerated the file, which is not a watermark: see sync_feeds.)
+    """
     fields = dict(line.strip().split(":", 1) for line in text.splitlines() if ":" in line)
     try:
-        modified = datetime.fromisoformat(fields["lastModifiedDate"])
-        return FeedMeta(
-            last_modified=modified.astimezone(UTC).replace(tzinfo=None),
-            size=int(fields["size"]),
-            sha256=fields["sha256"].lower(),
-        )
+        return FeedMeta(size=int(fields["size"]), sha256=fields["sha256"].lower())
     except (KeyError, ValueError) as err:
         raise NvdError(f"unreadable feed metadata ({err!r}): {text[:200]!r}") from err
 

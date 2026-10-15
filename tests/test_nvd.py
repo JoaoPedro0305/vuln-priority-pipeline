@@ -21,8 +21,8 @@ def no_sleep(seconds):
     pass
 
 
-def serve_feed(year, cves, modified="2026-01-15T03:00:00-05:00", meta=None):
-    gz, real_meta = nvd_feed(cves, modified)
+def serve_feed(year, cves, meta=None):
+    gz, real_meta = nvd_feed(cves)
     responses.get(config.NVD_META_URL.format(year=year), body=meta or real_meta)
     responses.get(config.NVD_FEED_URL.format(year=year), body=gz)
 
@@ -38,9 +38,9 @@ def requests_to(url):
 # --- metadata and verification ------------------------------------------------
 
 
-def test_parse_meta_converts_to_utc_and_normalizes_the_hash():
+def test_parse_meta_keeps_size_and_normalised_hash():
     meta = nvd.parse_meta("lastModifiedDate:2026-10-09T03:01:30-04:00\r\nsize:123\r\ngzSize:45\r\nsha256:ABCDEF\r\n")
-    assert meta == nvd.FeedMeta(last_modified=datetime(2026, 10, 9, 7, 1, 30), size=123, sha256="abcdef")
+    assert meta == nvd.FeedMeta(size=123, sha256="abcdef")
 
 
 def test_parse_meta_rejects_garbage():
@@ -56,7 +56,7 @@ def test_verify_feed(tmp_path):
 
     nvd.verify_feed(path, meta)  # matches
     with pytest.raises(nvd.NvdError, match="does not match"):
-        nvd.verify_feed(path, nvd.FeedMeta(meta.last_modified, meta.size, "0" * 64))
+        nvd.verify_feed(path, nvd.FeedMeta(meta.size, "0" * 64))
     path.write_bytes(b"not gzip")
     with pytest.raises(nvd.NvdError, match="not a valid gzip"):
         nvd.verify_feed(path, meta)
@@ -127,9 +127,9 @@ def test_feed_that_never_matches_its_meta_is_refused(con, tmp_path):
 
 @responses.activate
 def test_complete_sync_covers_up_to_the_latest_change_loaded(con, tmp_path):
-    # The 2023 feed is weeks old: NVD only regenerates a feed when one of its CVEs changes.
-    serve_feed(2023, [nvd_cve("CVE-2023-0001", "2025-11-20T10:00:00.000")], modified="2025-11-20T03:05:00-05:00")
-    serve_feed(2024, [nvd_cve("CVE-2024-0001", "2026-01-15T07:30:00.000")], modified="2026-01-15T03:01:00-05:00")
+    # Not the feeds' generation times: the latest lastModified among the CVEs loaded.
+    serve_feed(2023, [nvd_cve("CVE-2023-0001", "2025-11-20T10:00:00.000")])
+    serve_feed(2024, [nvd_cve("CVE-2024-0001", "2026-01-15T07:30:00.000")])
 
     nvd.sync_feeds(con, make_session(), [2023, 2024], tmp_path, record_sync=True)
 
@@ -275,8 +275,8 @@ def test_api_with_no_changes_still_records_the_sync(con, tmp_path):
 @responses.activate
 def test_ingest_nvd_picks_the_mode_from_the_last_sync(con, tmp_path):
     # Feeds exist for 2002 and 2003 when "now" is in 2003.
-    serve_feed(2002, [nvd_cve("CVE-2002-0001", "2002-12-01T00:00:00.000")], modified="2002-12-01T03:00:00-05:00")
-    serve_feed(2003, [nvd_cve("CVE-2003-0001", "2003-01-10T08:00:00.000")], modified="2003-01-10T03:00:00-05:00")
+    serve_feed(2002, [nvd_cve("CVE-2002-0001", "2002-12-01T00:00:00.000")])
+    serve_feed(2003, [nvd_cve("CVE-2003-0001", "2003-01-10T08:00:00.000")])
     responses.get(config.NVD_API_URL, body=nvd_doc([nvd_cve("CVE-2003-0002", "2003-01-11T00:00:00.000")]))
     now = datetime(2003, 1, 10, 12, 0)
 
