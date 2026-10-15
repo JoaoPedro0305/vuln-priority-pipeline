@@ -189,6 +189,11 @@ def test_export_writes_the_dashboard_data(warehouse, tmp_path):
     assert status["kev_version"] == "2026.01.15"
     priorities = json.loads((out / "priorities.json").read_text(encoding="utf-8"))
     assert [p["cve_id"] for p in priorities] == ["CVE-2024-0001", "CVE-2024-0003"]
-    assert priorities[0]["cvss_score"] == 9.8  # decimals become plain numbers
+    # Only what the dashboard shows is exported.
+    assert set(priorities[0]) == {
+        "priority_rank", "cve_id", "vendor", "product", "remediation", "ssvc_decision", "priority_reason",
+    }  # fmt: skip
+    recent = json.loads((out / "recent_kev.json").read_text(encoding="utf-8"))
+    assert recent[0]["cvss_score"] == 9.8  # decimals become plain numbers
     # No EPSS history in this warehouse, so the backtest is empty, not an error.
     assert json.loads((out / "backtest_coverage.json").read_text(encoding="utf-8")) == []
