@@ -5,6 +5,7 @@
 [![live sources](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/live-sources.yml/badge.svg)](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/live-sources.yml)
 [![daily](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/daily.yml/badge.svg)](https://github.com/JoaoPedro0305/vuln-priority-pipeline/actions/workflows/daily.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/JoaoPedro0305/vuln-priority-pipeline/badge)](https://scorecard.dev/viewer/?uri=github.com/JoaoPedro0305/vuln-priority-pipeline)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15506/badge)](https://www.bestpractices.dev/projects/15506)
 
 Daily pipeline that ranks CVEs by real-world exploitation risk (NVD + CISA KEV + EPSS),
 backtests patching strategies and publishes a live dashboard.
