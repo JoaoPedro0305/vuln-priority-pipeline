@@ -40,3 +40,11 @@ select = ["E", "F", "W", "B", "UP", "SIM", "S", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src/vulnprio"]
+
+[tool.coverage.report]
+fail_under = 90
+skip_empty = true
+show_missing = true
