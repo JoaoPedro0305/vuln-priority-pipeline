@@ -1,8 +1,8 @@
 # Tests, lint and audit tools, on top of the runtime dependencies (same versions):
 #   uv pip compile requirements-dev.in --universal --python-version 3.11 --generate-hashes -o requirements-dev.txt
 -r requirements.in
-coverage==7.16.2
+coverage==7.17.0
 pip-audit==2.10.1
-pytest==9.1.1
+pytest==9.2.0
 responses==0.26.3
-ruff==0.16.10
+ruff==0.17.3
